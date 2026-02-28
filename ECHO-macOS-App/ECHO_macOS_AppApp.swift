@@ -6,6 +6,7 @@ struct ECHO_macOS_AppApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Event.self,
+            Project.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 

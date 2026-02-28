@@ -1,10 +1,14 @@
 import SwiftUI
+import SwiftData
 
 struct TimelineView: View {
     @Bindable var activityManager: ActivityManager
     @State private var selectedDate = Date()
     @State private var showDatePicker = false
     @State private var filter: String = "All"
+    
+    @Environment(\.modelContext) private var modelContext
+    @State private var events: [Event] = []
     
     var dateFormatter: DateFormatter {
         let formatter = DateFormatter()
@@ -16,23 +20,13 @@ struct TimelineView: View {
         Calendar.current.isDateInToday(selectedDate)
     }
     
-    // Filter events for the selected date
-    var filteredEvents: [Event] {
-        let calendar = Calendar.current
-        let startOfDay = calendar.startOfDay(for: selectedDate)
-        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
-        
-        return activityManager.events.filter { event in
-            event.timestamp >= startOfDay && event.timestamp < endOfDay
-        }
-    }
-    
     // Convert Events to TimelineEvents for display
     var timelineEvents: [TimelineEvent] {
-        filteredEvents.map { event in
+        events.map { event in
             TimelineEvent(
                 time: event.timestamp.formatted(date: .omitted, time: .shortened),
                 duration: "Active",
+                appName: event.source,
                 title: event.type.replacingOccurrences(of: "_", with: " ").capitalized,
                 desc: event.text,
                 type: mapEventType(event.type),
@@ -41,14 +35,32 @@ struct TimelineView: View {
         }
     }
     
+    func fetchEvents() {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: selectedDate)
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay)!
+        
+        let predicate = #Predicate<Event> { event in
+            event.timestamp >= startOfDay && event.timestamp < endOfDay
+        }
+        let descriptor = FetchDescriptor<Event>(predicate: predicate, sortBy: [SortDescriptor(\.timestamp, order: .reverse)])
+        
+        do {
+            events = try modelContext.fetch(descriptor)
+        } catch {
+            print("Failed to fetch events: \(error)")
+        }
+    }
+    
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 30) {
             // Header
             VStack(alignment: .leading, spacing: 8) {
                 Text("Timeline")
                     .font(.largeTitle)
                     .fontWeight(.bold)
-                Text("A chronological view of your daily activities and work sessions")
+                Text("Chronological view of your daily activities")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
             
@@ -130,14 +142,6 @@ struct TimelineView: View {
                 .buttonStyle(.plain)
             }
             
-            // Legend
-            HStack(spacing: 16) {
-                LegendItem(color: .blue, label: "Code")
-                LegendItem(color: .green, label: "Research")
-                LegendItem(color: .red, label: "Meetings")
-                LegendItem(color: .purple, label: "Design")
-            }
-            
             // List
             ScrollView {
                 if timelineEvents.isEmpty {
@@ -149,7 +153,7 @@ struct TimelineView: View {
                         Text("No events for this day")
                             .font(.title3)
                             .fontWeight(.medium)
-                        Text(isToday ? "Enable auto-capture in Settings to start tracking" : "No activity recorded for this date")
+                        Text(isToday ? "Enable tracking in Settings to start recording activity" : "No activity recorded for this date")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -157,18 +161,9 @@ struct TimelineView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 40)
                 } else {
-                    ZStack(alignment: .topLeading) {
-                        // Vertical Line
-                        Rectangle()
-                            .fill(Color.gray.opacity(0.3))
-                            .frame(width: 2)
-                            .padding(.leading, 64)
-                            .padding(.top, 20)
-                        
-                        VStack(spacing: 0) {
-                            ForEach(timelineEvents) { activity in
-                                TimelineRowItem(activity: activity)
-                            }
+                    LazyVStack(spacing: 16) {
+                        ForEach(timelineEvents) { activity in
+                            TimelineRowItem(activity: activity)
                         }
                     }
                     .padding(.top)
@@ -177,6 +172,17 @@ struct TimelineView: View {
         }
         .padding(30)
         .background(Color.contentBackground)
+        .onAppear {
+            fetchEvents()
+        }
+        .onChange(of: selectedDate) {
+            fetchEvents()
+        }
+        .onChange(of: activityManager.events) {
+            if isToday {
+                fetchEvents()
+            }
+        }
     }
     
     // Map event type strings to TimelineEvent.ActivityType
@@ -188,8 +194,12 @@ struct TimelineView: View {
             return .research
         case "communication":
             return .meeting
-        case "design", "writing":
+        case "design":
             return .design
+        case "writing":
+            return .design
+        case "entertainment":
+            return .entertainment
         default:
             return .code
         }
@@ -212,67 +222,148 @@ struct TimelineRowItem: View {
     let activity: TimelineEvent
     
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: 20) {
             // Time
             Text(activity.time)
-                .font(.callout)
+                .font(.system(size: 13, weight: .medium))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
-                .frame(width: 50, alignment: .trailing)
+                .frame(width: 60, alignment: .trailing)
                 .padding(.top, 14)
             
-            // Dot
-            Circle()
-                .fill(activity.color)
-                .frame(width: 10, height: 10)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .padding(.top, 20)
-                .zIndex(1)
-            
-            // Card - Using solid background instead of glass effect
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(activity.title)
-                        .font(.headline)
-                        .fontWeight(.semibold)
-                    Spacer()
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock")
-                        Text(activity.duration)
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
+            // Card
+            HStack(spacing: 0) {
+                // Colored left bar
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(activity.color)
+                    .frame(width: 4)
                 
-                Text(activity.desc)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 10) {
+                    // Header
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            // App name as primary title
+                            Text(activity.appName)
+                                .font(.system(size: 15, weight: .semibold))
+                            
+                            // Event type as colored badge
+                            Text(activity.title)
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(activity.color.opacity(0.12))
+                                .foregroundStyle(activity.color)
+                                .clipShape(Capsule())
+                            
+                            if let project = cleanProjectName {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "folder.fill")
+                                        .font(.caption2)
+                                    Text(project)
+                                        .font(.caption)
+                                        .fontWeight(.medium)
+                                        .lineLimit(1)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.blue.opacity(0.1))
+                                .foregroundStyle(.blue)
+                                .clipShape(Capsule())
+                            }
+                        }
+                        
+                        Spacer()
+                        
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock.fill")
+                                .font(.caption2)
+                            Text(activity.duration)
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                    
+                    // Description
+                    if !activity.desc.isEmpty {
+                        Text(activity.desc)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                .padding(16)
             }
-            .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color.cardBackground)
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(activity.color.opacity(0.3), lineWidth: 1)
+                            .stroke(Color.subtleBorder, lineWidth: 1)
                     )
             )
-            .padding(.bottom, 16)
         }
     }
+    
+    // Helper to sanitize project name from bad LLM data
+    private var cleanProjectName: String? {
+        // Correct logic: For Browsing/Research, the "Project" is essentially the App (e.g. Chrome)
+        // The user specifically requested this.
+        if activity.type == .research || activity.type == .code {
+            // For code, we might want the project, but if the LLM hallucinated the project name
+            // as the app name (which happens), or providing nonsense, we might want to be careful.
+            // But for Browsing specifically:
+            if activity.type == .research {
+                return activity.originalEvent?.source
+            }
+        }
+        
+        guard let raw = activity.originalEvent?.projectName, !raw.isEmpty else { return nil }
+        
+        // If it's short and clean, return it
+        if raw.count < 50 && !raw.contains("\n") {
+            return raw
+        }
+        
+        // Try to extract "Project: NAME" pattern from raw LLM output
+        if let range = raw.range(of: "Project: ") {
+            let after = raw[range.upperBound...]
+            let name = after.components(separatedBy: .newlines).first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            // Clean up common markdown artifacts
+            let cleanName = name.replacingOccurrences(of: "*", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !cleanName.isEmpty && cleanName.count < 50 {
+                return cleanName
+            }
+        }
+        
+        // Try to extract JSON "name": "VALUE" pattern
+        if let range = raw.range(of: "\"name\": \"") {
+            let after = raw[range.upperBound...]
+            if let endRange = after.range(of: "\"") {
+                let name = String(after[..<endRange.lowerBound])
+                if !name.isEmpty && name.count < 50 {
+                    return name
+                }
+            }
+        }
+        
+        return nil
+    }
 }
+
 
 struct TimelineEvent: Identifiable {
     let id = UUID()
     let time: String
     let duration: String
+    let appName: String
     let title: String
     let desc: String
     let type: ActivityType
     let originalEvent: Event?
     
     enum ActivityType {
-        case code, research, meeting, design
+        case code, research, meeting, design, entertainment
     }
     
     var color: Color {
@@ -281,6 +372,7 @@ struct TimelineEvent: Identifiable {
         case .research: return .green
         case .meeting: return .red
         case .design: return .purple
+        case .entertainment: return .orange
         }
     }
 }

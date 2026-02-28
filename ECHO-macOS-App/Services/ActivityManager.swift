@@ -12,13 +12,30 @@ struct DailyStats {
     var events: Int = 0
 }
 
-/// Captured screenshot with OCR data, pending compilation
-struct CapturedScreenshot: Identifiable {
+/// Lightweight capture metadata (no NSImage retained in memory)
+struct PendingCapture: Identifiable {
     let id = UUID()
     let timestamp: Date
-    let image: NSImage
-    let ocrResults: [OCRResult]
-    let mappedWindows: [MappedWindow]
+    let windowSnapshots: [WindowSnapshot]
+}
+
+/// A snapshot of a single window's state at capture time
+struct WindowSnapshot: Identifiable {
+    let id = UUID()
+    let appName: String
+    let windowTitle: String
+    let ocrTextContent: String  // Pre-joined OCR text
+    let textCount: Int
+    
+    /// Key used for deduplication (app + title)
+    var deduplicationKey: String {
+        "\(appName)_\(windowTitle)"
+    }
+    
+    /// Simple content hash for detecting identical screen contents
+    var contentHash: Int {
+        ocrTextContent.prefix(200).hashValue
+    }
 }
 
 // MARK: - Activity Manager
@@ -63,22 +80,32 @@ class ActivityManager {
     
     // Automatic capture properties
     /// Whether automatic capture is currently active
-    var isAutoCapturing: Bool = false
+    var isAutoCapturing: Bool = UserDefaults.standard.bool(forKey: "isAutoCapturing") {
+        didSet {
+            UserDefaults.standard.set(isAutoCapturing, forKey: "isAutoCapturing")
+        }
+    }
     
     /// Capture interval in seconds (default: 5 seconds, range: 5s - 1min)
     var captureInterval: TimeInterval = 5
     
-    /// Whether to automatically generate events from captures (disabled for compile-based workflow)
-    var autoGenerateEvents: Bool = false
-    
-    // Pending screenshots (before compilation)
-    /// Array of screenshots captured but not yet compiled into events
-    var pendingScreenshots: [CapturedScreenshot] = []
-    
-    /// Count of pending screenshots ready to be compiled
-    var pendingCount: Int {
-        pendingScreenshots.count
+    /// Whether to automatically generate events from captures (persistent)
+    var autoGenerateEvents: Bool {
+        get { UserDefaults.standard.bool(forKey: "autoGenerateEvents") }
+        set { UserDefaults.standard.set(newValue, forKey: "autoGenerateEvents") }
     }
+    
+    // Pending captures (before compilation)
+    /// Array of lightweight capture metadata pending compilation
+    var pendingCaptures: [PendingCapture] = []
+    
+    /// Count of pending captures ready to be compiled
+    var pendingCount: Int {
+        pendingCaptures.count
+    }
+    
+    /// Whether auto-compilation is in progress
+    var isCompiling: Bool = false
     
     // MARK: - Private Properties
     
@@ -87,9 +114,18 @@ class ActivityManager {
     private let windowManager = WindowManager()
     private var captureTimer: Timer?
     
+    // LLM and project detection
+    private var llmService: LLMService?
+    private var projectDetectionService: ProjectDetectionService?
+    
     // Track recent events to prevent duplicates
     private var recentEventKeys: Set<String> = []
     private let deduplicationWindow: TimeInterval = 300 // 5 minutes
+    
+    // Auto-compilation thresholds
+    private let autoCompileThreshold = 20
+    private let autoCompileTimeInterval: TimeInterval = 120 // 2 minutes
+    private var firstPendingTimestamp: Date?
     
     // MARK: - Initialization
     
@@ -100,31 +136,44 @@ class ActivityManager {
     func configure(with context: ModelContext) {
         self.modelContext = context
         fetchTodayEvents()
-        startTracking()
+        startManualTracking()
         
-        // Start auto-capture by default for compile-based workflow
-        Task { @MainActor in
-            startAutoCapture()
+        // Restore tracking state from UserDefaults
+        if isAutoCapturing {
+            Task { @MainActor in
+                self.startTracking()
+            }
+        }
+        
+        // Initialize LLM services
+        initializeLLMServices()
+    }
+    
+    /// Initialize LLM and project detection services
+    private func initializeLLMServices() {
+        llmService = LLMService()
+        if let llm = llmService {
+            projectDetectionService = ProjectDetectionService(llmService: llm)
         }
     }
     
     // MARK: - Tracking Control
     
     /// Start activity tracking
-    func startTracking() {
+    func startManualTracking() {
         isTracking = true
         // TODO: Backend team - implement your tracking logic here
     }
     
     /// Stop activity tracking
-    func stopTracking() {
+    func stopManualTracking() {
         isTracking = false
         // TODO: Backend team - implement your tracking cleanup here
     }
     
     // MARK: - Event Management (see OCR Methods section for enhanced addEvent)
     
-    /// Clear all events from the database (useful for testing/development)
+    /// Clear all events and projects from the database (useful for testing/development)
     func clearAllEvents() {
         guard let context = modelContext else {
             print("⚠️ ModelContext not configured")
@@ -133,11 +182,12 @@ class ActivityManager {
         
         do {
             try context.delete(model: Event.self)
+            try context.delete(model: Project.self)
             events.removeAll()
             recalculateStats()
-            print("✅ All events cleared")
+            print("✅ All events and projects cleared")
         } catch {
-            print("❌ Failed to clear events: \(error)")
+            print("❌ Failed to clear data: \(error)")
         }
     }
     
@@ -200,29 +250,32 @@ class ActivityManager {
     
     // MARK: - Statistics Calculation
     
-    /// Calculate total hours tracked across all events
+    /// Calculate total hours tracked across all events using gap-based active time
     func calculateTotalHours() -> Double {
         guard !events.isEmpty else { return 0 }
         
-        // Group events by day and calculate hours for each day
         let calendar = Calendar.current
         let eventsByDay = Dictionary(grouping: events) { event in
             calendar.startOfDay(for: event.timestamp)
         }
         
         var totalHours = 0.0
+        let maxGap: TimeInterval = 1800 // 30 minutes
+        
         for (_, dayEvents) in eventsByDay {
-            let sortedEvents = dayEvents.sorted { $0.timestamp < $1.timestamp }
-            if let first = sortedEvents.first, let last = sortedEvents.last {
-                let duration = last.timestamp.timeIntervalSince(first.timestamp)
-                totalHours += duration / 3600.0
+            let sorted = dayEvents.sorted { $0.timestamp < $1.timestamp }
+            for i in 1..<sorted.count {
+                let gap = sorted[i].timestamp.timeIntervalSince(sorted[i-1].timestamp)
+                if gap < maxGap {
+                    totalHours += gap / 3600.0
+                }
             }
         }
         
         return totalHours
     }
     
-    /// Calculate hours worked this week
+    /// Calculate hours worked this week using gap-based active time
     func calculateWeeklyHours() -> Double {
         let calendar = Calendar.current
         let now = Date()
@@ -231,21 +284,62 @@ class ActivityManager {
         }
         
         let weekEvents = events.filter { $0.timestamp >= weekStart }
-        
         let eventsByDay = Dictionary(grouping: weekEvents) { event in
             calendar.startOfDay(for: event.timestamp)
         }
         
         var weeklyHours = 0.0
+        let maxGap: TimeInterval = 1800
+        
         for (_, dayEvents) in eventsByDay {
-            let sortedEvents = dayEvents.sorted { $0.timestamp < $1.timestamp }
-            if let first = sortedEvents.first, let last = sortedEvents.last {
-                let duration = last.timestamp.timeIntervalSince(first.timestamp)
-                weeklyHours += duration / 3600.0
+            let sorted = dayEvents.sorted { $0.timestamp < $1.timestamp }
+            for i in 1..<sorted.count {
+                let gap = sorted[i].timestamp.timeIntervalSince(sorted[i-1].timestamp)
+                if gap < maxGap {
+                    weeklyHours += gap / 3600.0
+                }
             }
         }
         
         return weeklyHours
+    }
+    
+    /// Calculate active hours for each day of the current week (Mon=0, Sun=6)
+    func calculateDailyHoursThisWeek() -> [Double] {
+        let calendar = Calendar.current
+        let now = Date()
+        guard let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) else {
+            return Array(repeating: 0, count: 7)
+        }
+        
+        var dailyHours = Array(repeating: 0.0, count: 7)
+        let weekEvents = events.filter { $0.timestamp >= weekStart }
+        let maxGap: TimeInterval = 1800
+        
+        let eventsByDay = Dictionary(grouping: weekEvents) { event in
+            calendar.startOfDay(for: event.timestamp)
+        }
+        
+        for (dayStart, dayEvents) in eventsByDay {
+            // Get weekday index (Mon=0, Sun=6)
+            let weekday = calendar.component(.weekday, from: dayStart)
+            // Calendar.weekday: 1=Sun, 2=Mon, ... 7=Sat → convert to Mon=0
+            let index = weekday == 1 ? 6 : weekday - 2
+            
+            let sorted = dayEvents.sorted { $0.timestamp < $1.timestamp }
+            var hours = 0.0
+            for i in 1..<sorted.count {
+                let gap = sorted[i].timestamp.timeIntervalSince(sorted[i-1].timestamp)
+                if gap < maxGap {
+                    hours += gap / 3600.0
+                }
+            }
+            if index >= 0 && index < 7 {
+                dailyHours[index] = hours
+            }
+        }
+        
+        return dailyHours
     }
     
     /// Calculate consecutive days with activity (work streak)
@@ -281,8 +375,8 @@ class ActivityManager {
     
     /// Start automatic screen capture at the configured interval
     @MainActor
-    func startAutoCapture() {
-        guard !isAutoCapturing else { return }
+    func startTracking() {
+        guard captureTimer == nil else { return }  // Only skip if timer is already running
         
         isAutoCapturing = true
         
@@ -298,19 +392,19 @@ class ActivityManager {
             }
         }
         
-        print("✅ Auto-capture started (interval: \(captureInterval)s)")
+        print("✅ Tracking started (interval: \(captureInterval)s)")
     }
     
     /// Stop automatic screen capture
     @MainActor
-    func stopAutoCapture() {
+    func stopTracking() {
         guard isAutoCapturing else { return }
         
         isAutoCapturing = false
         captureTimer?.invalidate()
         captureTimer = nil
         
-        print("⏹️ Auto-capture stopped")
+        print("⏹️ Tracking stopped")
     }
     
     /// Update the capture interval and restart timer if active
@@ -319,58 +413,402 @@ class ActivityManager {
         captureInterval = interval
         
         if isAutoCapturing {
-            stopAutoCapture()
-            startAutoCapture()
+            stopTracking()
+            startTracking()
         }
     }
     
-    /// Perform automatic capture and store screenshot for later compilation
+    /// Perform automatic capture and store lightweight metadata for later compilation
     @MainActor
     private func performAutomaticCapture() async {
         await performScreenCapture()
         
-        // Store screenshot for compilation instead of generating events immediately
-        if let image = capturedImage, !mappedWindows.isEmpty {
-            let screenshot = CapturedScreenshot(
-                timestamp: Date(),
-                image: image,
-                ocrResults: ocrResults,
-                mappedWindows: mappedWindows
+        guard !mappedWindows.isEmpty else { return }
+        
+        // Convert to lightweight snapshots immediately — no NSImage retained
+        // Take top 3 windows by text content (not just the primary)
+        let topWindows = mappedWindows.prefix(3)
+        let snapshots = topWindows.map { mapped in
+            WindowSnapshot(
+                appName: mapped.window.ownerName,
+                windowTitle: mapped.window.windowTitle,
+                ocrTextContent: mapped.containedText.map { $0.text }.joined(separator: "\n"),
+                textCount: mapped.containedText.count
             )
-            pendingScreenshots.append(screenshot)
-            print("📸 Screenshot captured (\(pendingCount) pending)")
+        }
+        
+        let capture = PendingCapture(
+            timestamp: Date(),
+            windowSnapshots: Array(snapshots)
+        )
+        pendingCaptures.append(capture)
+        
+        // Track first pending timestamp for auto-compile
+        if firstPendingTimestamp == nil {
+            firstPendingTimestamp = Date()
+        }
+        
+        print("📸 Capture stored (\(pendingCount) pending, \(snapshots.count) windows)")
+        
+        // Auto-compile if threshold reached
+        let timeSinceFirst = Date().timeIntervalSince(firstPendingTimestamp ?? Date())
+        if pendingCount >= autoCompileThreshold || timeSinceFirst >= autoCompileTimeInterval {
+            print("⚡ Auto-compile triggered (count: \(pendingCount), elapsed: \(Int(timeSinceFirst))s)")
+            compilePendingCaptures()
         }
     }
     
-    /// Compile all pending screenshots into events
+    /// Compile all pending captures into deduplicated events with batched LLM summarization
     @MainActor
-    func compilePendingScreenshots() {
-        guard !pendingScreenshots.isEmpty else {
-            print("⚠️ No screenshots to compile")
+    func compilePendingCaptures() {
+        guard !pendingCaptures.isEmpty, !isCompiling else {
+            if pendingCaptures.isEmpty {
+                print("⚠️ No captures to compile")
+            }
             return
         }
         
-        let count = pendingScreenshots.count
-        print("🔄 Compiling \(count) screenshots...")
+        isCompiling = true
+        let capturesToProcess = pendingCaptures
+        let totalCount = capturesToProcess.count
+        print("🔄 Compiling \(totalCount) captures...")
         
-        // Process each pending screenshot
-        for screenshot in pendingScreenshots {
-            // Temporarily set the current capture data
-            capturedImage = screenshot.image
-            ocrResults = screenshot.ocrResults
-            mappedWindows = screenshot.mappedWindows
+        // Clear immediately to allow new captures during compilation
+        pendingCaptures.removeAll()
+        firstPendingTimestamp = nil
+        
+        Task {
+            // Step 1: Deduplicate — group all window snapshots by key, keep latest per unique state
+            let uniqueWindows = deduplicateWindowSnapshots(from: capturesToProcess)
+            print("📦 Grouped \(totalCount) captures into \(uniqueWindows.count) unique window states")
             
-            // Generate events intelligently
-            processOCRResultsIntelligently()
+            // Step 1.5: Merge similar windows from the same app (e.g. multiple Chrome tabs about the same topic)
+            let mergedWindows = mergeSimilarWindows(uniqueWindows)
+            if mergedWindows.count < uniqueWindows.count {
+                print("🔗 Merged \(uniqueWindows.count) windows → \(mergedWindows.count) (consolidated similar content)")
+            }
+            
+            // Step 2: Batch LLM summarization — one call for all unique windows
+            let summaries = await batchSummarize(windows: mergedWindows)
+            
+            // Step 3: Create events from summaries
+            await MainActor.run {
+                for (index, window) in mergedWindows.enumerated() {
+                    let summary = index < summaries.count ? summaries[index] : window.windowTitle
+                    let eventType = determineEventType(for: window.appName)
+                    let meta = "{\"textCount\":\(window.textCount),\"deduplicated\":true}"
+                    
+                    addEvent(
+                        source: window.appName,
+                        type: eventType,
+                        text: summary,
+                        meta: meta,
+                        windowName: window.windowTitle
+                    )
+                }
+            }
+            
+            // Step 4: Concurrent project detection
+            await detectProjectsForRecentEvents()
+            
+            await MainActor.run {
+                fetchTodayEvents()
+                isCompiling = false
+                print("✅ Compilation complete! \(totalCount) captures → \(uniqueWindows.count) events")
+            }
+        }
+    }
+    
+    // Legacy API compatibility — SidebarView calls this name
+    @MainActor
+    func compilePendingScreenshots() {
+        compilePendingCaptures()
+    }
+    
+    // MARK: - Compilation Helpers
+    
+    /// Deduplicate window snapshots with dwell-time filtering.
+    /// Windows the user stayed on for < 2 captures (~10 seconds) are considered transient tab switches and excluded.
+    private func deduplicateWindowSnapshots(from captures: [PendingCapture]) -> [WindowSnapshot] {
+        // Track how many captures each window key appeared in (dwell-time proxy)
+        var appearanceCount: [String: Int] = [:]
+        var latestByKey: [String: WindowSnapshot] = [:]
+        var seenContentHashes: Set<Int> = []
+        
+        // Process in chronological order so later captures overwrite earlier
+        for capture in captures.sorted(by: { $0.timestamp < $1.timestamp }) {
+            for snapshot in capture.windowSnapshots {
+                let key = snapshot.deduplicationKey
+                let contentHash = snapshot.contentHash
+                
+                // Count every appearance (even duplicate content) for dwell-time
+                appearanceCount[key, default: 0] += 1
+                
+                // Skip if we've already seen identical content for this window
+                let combinedHash = key.hashValue ^ contentHash
+                if seenContentHashes.contains(combinedHash) {
+                    continue
+                }
+                seenContentHashes.insert(combinedHash)
+                
+                // Keep the latest snapshot per unique key
+                latestByKey[key] = snapshot
+            }
         }
         
-        // Clear pending screenshots
-        pendingScreenshots.removeAll()
+        // Filter out transient windows (appeared in < 2 captures ≈ < 10 seconds)
+        let minDwellCount = 2
+        let dwellFiltered = latestByKey.filter { key, _ in
+            let count = appearanceCount[key] ?? 0
+            return count >= minDwellCount
+        }
         
-        // Refresh today's events to update UI
-        fetchTodayEvents()
+        let filteredOut = latestByKey.count - dwellFiltered.count
+        if filteredOut > 0 {
+            print("🔇 Filtered \(filteredOut) transient window(s) (< \(minDwellCount) captures)")
+        }
         
-        print("✅ Compilation complete! Generated events from \(count) screenshots")
+        // Also filter against recent event keys to prevent cross-compile duplicates
+        return dwellFiltered.values.filter { snapshot in
+            let key = snapshot.deduplicationKey
+            if recentEventKeys.contains(key) {
+                return false
+            }
+            // Mark as processed
+            recentEventKeys.insert(key)
+            // Schedule cleanup
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(deduplicationWindow * 1_000_000_000))
+                await MainActor.run {
+                    recentEventKeys.remove(key)
+                }
+            }
+            return true
+        }
+    }
+    
+    /// Merge windows from the same app that have highly similar content.
+    /// Uses word-overlap (Jaccard similarity) to detect when multiple windows/tabs are about the same topic.
+    private func mergeSimilarWindows(_ windows: [WindowSnapshot]) -> [WindowSnapshot] {
+        guard windows.count > 1 else { return windows }
+        
+        // Group by app name — only merge within the same app
+        let byApp = Dictionary(grouping: windows) { $0.appName }
+        var result: [WindowSnapshot] = []
+        
+        for (_, appWindows) in byApp {
+            if appWindows.count <= 1 {
+                result.append(contentsOf: appWindows)
+                continue
+            }
+            
+            // Build clusters of similar windows
+            var merged: [Bool] = Array(repeating: false, count: appWindows.count)
+            var clusters: [[Int]] = []
+            
+            for i in 0..<appWindows.count {
+                if merged[i] { continue }
+                var cluster = [i]
+                merged[i] = true
+                
+                let wordsI = extractWords(from: appWindows[i].ocrTextContent)
+                guard wordsI.count >= 3 else {
+                    // Too little text to compare — keep as-is
+                    clusters.append(cluster)
+                    continue
+                }
+                
+                for j in (i+1)..<appWindows.count {
+                    if merged[j] { continue }
+                    let wordsJ = extractWords(from: appWindows[j].ocrTextContent)
+                    guard wordsJ.count >= 3 else { continue }
+                    
+                    let similarity = jaccardSimilarity(wordsI, wordsJ)
+                    if similarity > 0.4 {
+                        cluster.append(j)
+                        merged[j] = true
+                    }
+                }
+                
+                clusters.append(cluster)
+            }
+            
+            // Create merged snapshots from clusters
+            for cluster in clusters {
+                if cluster.count == 1 {
+                    result.append(appWindows[cluster[0]])
+                } else {
+                    // Merge: combine OCR text, keep longest window title
+                    let clusterWindows = cluster.map { appWindows[$0] }
+                    let bestTitle = clusterWindows.max(by: { $0.windowTitle.count < $1.windowTitle.count })?.windowTitle ?? ""
+                    let combinedText = clusterWindows.map { $0.ocrTextContent }.joined(separator: "\n---\n")
+                    let totalTextCount = clusterWindows.reduce(0) { $0 + $1.textCount }
+                    
+                    result.append(WindowSnapshot(
+                        appName: clusterWindows[0].appName,
+                        windowTitle: bestTitle,
+                        ocrTextContent: combinedText,
+                        textCount: totalTextCount
+                    ))
+                }
+            }
+        }
+        
+        return result
+    }
+    
+    /// Extract significant words for similarity comparison
+    private func extractWords(from text: String) -> Set<String> {
+        let words = text.lowercased()
+            .components(separatedBy: .alphanumerics.inverted)
+            .filter { $0.count > 2 }  // Skip tiny words
+        return Set(words)
+    }
+    
+    /// Jaccard similarity: |intersection| / |union|
+    private func jaccardSimilarity(_ a: Set<String>, _ b: Set<String>) -> Double {
+        let intersection = a.intersection(b).count
+        let union = a.union(b).count
+        guard union > 0 else { return 0 }
+        return Double(intersection) / Double(union)
+    }
+    
+    /// Batch summarize unique windows using a single LLM call
+    private func batchSummarize(windows: [WindowSnapshot]) async -> [String] {
+        guard let llm = llmService, !windows.isEmpty else {
+            // Fallback: use window title as summary
+            return windows.map { $0.windowTitle.isEmpty ? $0.appName : $0.windowTitle }
+        }
+        
+        let activities = windows.map { window in
+            (appName: window.appName, windowTitle: window.windowTitle, ocrText: window.ocrTextContent)
+        }
+        
+        do {
+            let summaries = try await llm.batchSummarizeActivities(activities)
+            print("✅ Batch summary complete (\(summaries.count) summaries from 1 LLM call)")
+            return summaries
+        } catch {
+            print("⚠️ Batch LLM summary failed: \(error)")
+            // Fallback to window titles
+            return windows.map { $0.windowTitle.isEmpty ? $0.appName : $0.windowTitle }
+        }
+    }
+    
+    /// Detect and assign projects to recent events using concurrent processing
+    private func detectProjectsForRecentEvents() async {
+        guard let detectionService = projectDetectionService else {
+            print("⚠️ Project detection service not initialized")
+            return
+        }
+        
+        // Get events without projects from the last 5 minutes (wider window for batch compile)
+        let recentEvents = events.filter { event in
+            event.projectName == nil &&
+            Date().timeIntervalSince(event.timestamp) < 300
+        }
+        
+        guard !recentEvents.isEmpty else { return }
+        
+        print("🔍 Detecting projects for \(recentEvents.count) events...")
+        
+        // Get existing project names once (not per-event)
+        let existingProjects = await getExistingProjectNames()
+        let workCategories: Set<String> = ["Coding", "Writing", "Design", "Research"]
+        
+        // Process events concurrently with TaskGroup
+        await withTaskGroup(of: (Event, String, String).self) { group in
+            for event in recentEvents {
+                group.addTask {
+                    let (projectName, category) = await detectionService.detectProject(
+                        from: event,
+                        existingProjects: existingProjects
+                    )
+                    return (event, projectName, category)
+                }
+            }
+            
+            // Collect results and update events on main actor
+            for await (event, projectName, category) in group {
+                // Skip non-project classifications
+                if projectName == "General" || projectName == "New Project" {
+                    continue
+                }
+                
+                if workCategories.contains(category) {
+                    await MainActor.run {
+                        event.projectName = projectName
+                    }
+                    await createProjectIfNeeded(name: projectName, category: category)
+                } else {
+                    print("🚫 Skipping non-work category \(category): \(projectName)")
+                }
+            }
+        }
+        
+        print("✅ Project detection complete")
+    }
+    
+    /// Get list of existing project names
+    private func getExistingProjectNames() async -> [String] {
+        guard let context = modelContext else { return [] }
+        
+        let descriptor = FetchDescriptor<Project>()
+        do {
+            let projects = try context.fetch(descriptor)
+            return projects.map { $0.name }
+        } catch {
+            print("❌ Failed to fetch projects: \(error)")
+            return []
+        }
+    }
+    
+    /// Create a new project with deduplication check
+    @MainActor
+    func createProject(name: String, description: String = "", color: Color = .blue, category: String? = nil, isAutoCreated: Bool = false) {
+        guard let context = modelContext else { return }
+        
+        // Normalize name for comparison
+        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        
+        // Check if project with same normalized name already exists
+        let descriptor = FetchDescriptor<Project>()
+        do {
+            let existingProjects = try context.fetch(descriptor)
+            let existsAlready = existingProjects.contains { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == normalizedName }
+            if existsAlready {
+                print("⚠️ Project '\(name)' already exists, skipping creation")
+                return
+            }
+        } catch {
+            print("❌ Failed to check for existing projects: \(error)")
+        }
+        
+        // Use category color if auto-created, otherwise use provided color
+        let colorHex = category != nil ? Project.colorForCategory(category!) : (color.toHex() ?? "#3B82F6")
+        
+        let project = Project(
+            name: name,
+            desc: description,
+            colorHex: colorHex,
+            category: category,
+            isAutoCreated: isAutoCreated
+        )
+        context.insert(project)
+        
+        do {
+            try context.save()
+            print("✨ Created new project: \(name) (\(category ?? "no category"))")
+        } catch {
+            print("❌ Failed to save project: \(error)")
+        }
+    }
+    
+    /// Helper to create project only if it doesn't exist (async-safe wrapper)
+    private func createProjectIfNeeded(name: String, category: String) async {
+        await MainActor.run {
+            createProject(name: name, category: category, isAutoCreated: true)
+        }
     }
     
     // MARK: - OCR Methods
@@ -452,72 +890,58 @@ class ActivityManager {
         }
     }
     
-    /// Intelligently process OCR results to create meaningful, deduplicated events
-    private func processOCRResultsIntelligently() {
-        guard !mappedWindows.isEmpty else { return }
-        
-        // Get the window with the most text (likely the active/focused window)
-        guard let primaryWindow = mappedWindows.first else { return }
-        
-        // Create a unique key for this window state
-        let windowKey = "\(primaryWindow.window.ownerName)_\(primaryWindow.window.windowTitle)"
-        
-        // Check if we've recently created an event for this window
-        if recentEventKeys.contains(windowKey) {
-            return // Skip duplicate
-        }
-        
-        // Add to recent events
-        recentEventKeys.insert(windowKey)
-        
-        // Clean up old entries (older than deduplication window)
-        Task {
-            try? await Task.sleep(nanoseconds: UInt64(deduplicationWindow * 1_000_000_000))
-            recentEventKeys.remove(windowKey)
-        }
-        
-        // Determine event type based on application
-        let eventType = determineEventType(for: primaryWindow.window.ownerName)
-        
-        // Get a meaningful text snippet (first substantial text or window title)
-        let meaningfulText = primaryWindow.containedText
-            .first(where: { $0.text.count > 10 })?.text
-            ?? primaryWindow.window.windowTitle
-            ?? primaryWindow.window.ownerName
-        
-        // Create the event
-        let meta = "{\"textCount\":\(primaryWindow.containedText.count),\"windowCount\":\(mappedWindows.count)}"
-        
-        addEvent(
-            source: primaryWindow.window.ownerName,
-            type: eventType,
-            text: meaningfulText,
-            meta: meta,
-            windowName: primaryWindow.window.displayName,
-            ocrText: nil,
-            bounds: nil
-        )
-        
-        print("📝 Created event: \(eventType) - \(primaryWindow.window.ownerName)")
-    }
     
     /// Determine event type based on application name
     private func determineEventType(for appName: String) -> String {
         let lowercased = appName.lowercased()
         
-        if lowercased.contains("xcode") || lowercased.contains("code") || lowercased.contains("terminal") {
+        // Coding / Development
+        if lowercased.contains("xcode") || lowercased.contains("code") || lowercased.contains("cursor") ||
+           lowercased.contains("terminal") || lowercased.contains("iterm") || lowercased.contains("warp") ||
+           lowercased.contains("android studio") || lowercased.contains("intellij") ||
+           lowercased.contains("sublime") || lowercased.contains("atom") || lowercased.contains("vim") ||
+           lowercased.contains("github desktop") || lowercased.contains("tower") ||
+           lowercased.contains("postman") || lowercased.contains("insomnia") {
             return "coding"
-        } else if lowercased.contains("safari") || lowercased.contains("chrome") || lowercased.contains("firefox") {
-            return "browsing"
-        } else if lowercased.contains("slack") || lowercased.contains("teams") || lowercased.contains("zoom") {
-            return "communication"
-        } else if lowercased.contains("figma") || lowercased.contains("sketch") || lowercased.contains("photoshop") {
-            return "design"
-        } else if lowercased.contains("notes") || lowercased.contains("notion") || lowercased.contains("obsidian") {
-            return "writing"
-        } else {
-            return "app_usage"
         }
+        
+        // Browsing
+        if lowercased.contains("safari") || lowercased.contains("chrome") ||
+           lowercased.contains("firefox") || lowercased.contains("arc") ||
+           lowercased.contains("brave") || lowercased.contains("edge") || lowercased.contains("opera") {
+            return "browsing"
+        }
+        
+        // Communication
+        if lowercased.contains("slack") || lowercased.contains("teams") || lowercased.contains("zoom") ||
+           lowercased.contains("discord") || lowercased.contains("messages") || lowercased.contains("mail") ||
+           lowercased.contains("outlook") || lowercased.contains("telegram") || lowercased.contains("whatsapp") ||
+           lowercased.contains("facetime") {
+            return "communication"
+        }
+        
+        // Design
+        if lowercased.contains("figma") || lowercased.contains("sketch") || lowercased.contains("photoshop") ||
+           lowercased.contains("illustrator") || lowercased.contains("canva") || lowercased.contains("blender") ||
+           lowercased.contains("affinity") || lowercased.contains("pixelmator") {
+            return "design"
+        }
+        
+        // Writing / Notes
+        if lowercased.contains("notes") || lowercased.contains("notion") || lowercased.contains("obsidian") ||
+           lowercased.contains("bear") || lowercased.contains("pages") || lowercased.contains("word") ||
+           lowercased.contains("google docs") || lowercased.contains("craft") || lowercased.contains("ulysses") {
+            return "writing"
+        }
+        
+        // Entertainment / Media
+        if lowercased.contains("spotify") || lowercased.contains("music") || lowercased.contains("youtube") ||
+           lowercased.contains("netflix") || lowercased.contains("tv") || lowercased.contains("vlc") ||
+           lowercased.contains("podcasts") {
+            return "entertainment"
+        }
+        
+        return "app_usage"
     }
     
     /// Enhanced addEvent with OCR support

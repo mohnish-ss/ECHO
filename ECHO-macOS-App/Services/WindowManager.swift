@@ -149,8 +149,11 @@ class WindowManager {
         }
 
         // Create the stream
-        guard let stream = try? SCStream(filter: filter, configuration: configuration, delegate: nil) else {
-            print("Error: Failed to create SCStream.")
+        let stream: SCStream
+        do {
+            stream = try SCStream(filter: filter, configuration: configuration, delegate: nil)
+        } catch {
+            print("Error: Failed to create SCStream: \(error)")
             return nil
         }
 

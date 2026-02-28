@@ -65,8 +65,8 @@ struct SidebarView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
                 }
+                .padding(.horizontal, 16)
             }
             
             Spacer()
@@ -76,38 +76,38 @@ struct SidebarView: View {
                 VStack(spacing: 8) {
                     HStack(spacing: 8) {
                         Circle()
-                            .fill(activityManager.isTracking ? Color.green.opacity(0.9) : Color.yellow.opacity(0.8))
+                            .fill(activityManager.isAutoCapturing ? Color.green.opacity(0.9) : Color.yellow.opacity(0.8))
                             .frame(width: 10, height: 10)
-                            .shadow(color: activityManager.isTracking ? Color.green.opacity(0.5) : .clear, radius: 4)
-                        Text(activityManager.isTracking ? "Tracking Active" : "Tracking Paused")
+                            .shadow(color: activityManager.isAutoCapturing ? Color.green.opacity(0.5) : .clear, radius: 4)
+                        Text(activityManager.isAutoCapturing ? "Tracking Active" : "Tracking Paused")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(.white.opacity(0.9))
                     }
                     
-                    Text("\(activityManager.pendingCount) screenshot\(activityManager.pendingCount == 1 ? "" : "s") ready to be\ncompiled")
+                    Text("\(activityManager.pendingCount) capture\(activityManager.pendingCount == 1 ? "" : "s") ready to compile")
                         .font(.system(size: 12))
                         .multilineTextAlignment(.center)
                         .foregroundStyle(Color.mutedGray)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity)
                 }
                 
-                HStack(spacing: 6) {
+                HStack(spacing: 4) {
                     // Pause/Resume Button
                     Button {
-                        if activityManager.isTracking {
+                        if activityManager.isAutoCapturing {
                             activityManager.stopTracking()
                         } else {
                             activityManager.startTracking()
                         }
                     } label: {
-                        Text(activityManager.isTracking ? "Pause" : "Resume")
+                        Text(activityManager.isAutoCapturing ? "Pause" : "Resume")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.white.opacity(0.9))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.9)
                             .frame(minWidth: 55)
                             .padding(.vertical, 6)
-                            .padding(.horizontal, 10)
+                            .padding(.horizontal, 12)
                             .background {
                                 Color.clear
                                     .glassEffect()
@@ -123,10 +123,9 @@ struct SidebarView: View {
                         Text("Settings")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(.white.opacity(0.9))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.9)
+                            .frame(minWidth: 55)
                             .padding(.vertical, 6)
-                            .padding(.horizontal, 10)
+                            .padding(.horizontal, 12)
                             .background {
                                 Color.clear
                                     .glassEffect()
@@ -144,10 +143,9 @@ struct SidebarView: View {
                         Text("Compile")
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.9))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.9)
+                            .frame(minWidth: 55)
                             .padding(.vertical, 6)
-                            .padding(.horizontal, 10)
+                            .padding(.horizontal, 12)
                             .background {
                                 Capsule()
                                     .fill(Color.blue.opacity(0.5))

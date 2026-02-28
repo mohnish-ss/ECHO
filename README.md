@@ -1,45 +1,72 @@
-# Project-Echo
+# ECHO
 
-ECHO is a macOS productivity tracking application built with SwiftUI that monitors your activity, tracks time spent across projects, and provides intelligent insights through OCR and window analysis.
+ECHO is a macOS productivity tracking application built with SwiftUI that monitors your activity, tracks time spent across projects, and provides intelligent insights through OCR and local LLM analysis.
 
 ## Features
 
-- **Activity Dashboard**: Real-time view of your daily productivity stats
-- **Timeline View**: Detailed timeline of your work sessions
-- **Screen Capture & OCR**: Capture screenshots and extract text using Apple Vision
-- **Window Tracking**: Automatically map detected text to application windows
-- **Project Management**: Track time across multiple projects
-- **Event Logging**: Comprehensive activity tracking with SwiftData
+- **Activity Dashboard** — Real-time view of your daily productivity stats
+- **Timeline View** — Detailed timeline of your work sessions with app-level detail
+- **Screen Capture & OCR** — Automatic screenshots with Apple Vision text extraction
+- **Smart Compilation** — Deduplicates, filters transient events, and merges similar content
+- **Project Detection** — Automatically classifies work into coding, academic, and research projects
+- **Ask ECHO** — Chat with a local LLM (Ollama) about your activity history
+- **Profile & Stats** — Weekly breakdown, top apps, active streak tracking
 
 ## Getting Started
 
 1. Open `ECHO-macOS-App.xcodeproj` in Xcode
-2. Follow the setup instructions in [SETUP.md](SETUP.md) to configure permissions
-3. Build and run the app (⌘R)
+2. Build and run (⌘R)
+3. Grant permissions when prompted (see below)
 
 ## Requirements
 
-- macOS 14.0 or later
-- Xcode 15.0 or later
-- Swift 5.9 or later
+- macOS 15.0+
+- Xcode 16.0+
+- [Ollama](https://ollama.com) running locally (for Ask ECHO)
+
+## Permissions
+
+The app needs two macOS permissions:
+
+1. **Screen Recording** — System Settings → Privacy & Security → Screen Recording → Enable ECHO
+2. **Accessibility** — System Settings → Privacy & Security → Accessibility → Enable ECHO
+
+> **Tip:** If permissions reset after rebuilding, disable App Sandbox in Xcode (Target → Signing & Capabilities → remove App Sandbox), then clean build (⌘⇧K).
 
 ## Project Structure
 
 ```
 ECHO-macOS-App/
-├── Models/           # Data models (Event, OCRModels)
-├── Services/         # Business logic (ActivityManager, OCREngine, WindowManager)
-├── Views/            # SwiftUI views
-└── Assets.xcassets/  # App assets and images
+├── Models/
+│   ├── Event.swift              # Core event data model (SwiftData)
+│   ├── Project.swift            # Project data model
+│   └── OCRModels.swift          # OCR text recognition models
+├── Services/
+│   ├── ActivityManager.swift    # Main orchestrator — capture, compile, stats
+│   ├── LLMService.swift         # Ollama integration & chat
+│   ├── OCREngine.swift          # Apple Vision OCR
+│   ├── ProjectDetectionService.swift  # Project classification
+│   └── WindowManager.swift      # Window enumeration & mapping
+├── Views/
+│   ├── ContentView.swift        # Root navigation
+│   ├── SidebarView.swift        # Sidebar + theme colors
+│   ├── DashboardView.swift      # Activity dashboard
+│   ├── TimelineView.swift       # Event timeline
+│   ├── AskView.swift            # LLM chat interface
+│   ├── ProjectsView.swift       # Project list
+│   ├── ProjectDetailView.swift  # Individual project detail
+│   ├── ProfileView.swift        # User profile + weekly stats
+│   ├── SettingsView.swift       # App settings
+│   └── EditProfileSheet.swift   # Profile edit modal
+└── Assets.xcassets/             # App icons and images
 ```
 
-## Privacy & Permissions
+## Starting Ollama
 
-This app requires:
-- **Accessibility** permission for window tracking
-- **Screen Recording** permission for screenshot capture
-
-See [SETUP.md](SETUP.md) for detailed setup instructions.
+```bash
+ollama serve                  # Start the server
+ollama pull llama3.2:3b       # Pull the model (first time only)
+```
 
 ## License
 

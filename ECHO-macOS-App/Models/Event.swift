@@ -14,7 +14,10 @@ final class Event {
     var ocrText: String? // Detected text snippet
     var bounds: String? // JSON string of bounding box data
     
-    init(timestamp: Date = Date(), source: String, type: String, text: String, meta: String? = nil, windowName: String? = nil, ocrText: String? = nil, bounds: String? = nil) {
+    // Project relationship
+    var projectName: String? // Link to project
+    
+    init(timestamp: Date = Date(), source: String, type: String, text: String, meta: String? = nil, windowName: String? = nil, ocrText: String? = nil, bounds: String? = nil, projectName: String? = nil) {
         self.timestamp = timestamp
         self.source = source
         self.type = type
@@ -23,6 +26,7 @@ final class Event {
         self.windowName = windowName
         self.ocrText = ocrText
         self.bounds = bounds
+        self.projectName = projectName
     }
 }
 
