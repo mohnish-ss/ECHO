@@ -1,6 +1,8 @@
 import Foundation
 import MLXLMCommon
 import MLXHuggingFace
+import HuggingFace
+import Tokenizers
 
 /// Native LLM Service using Apple's MLX for 100% on-device inference without external tools like Ollama.
 @Observable
