@@ -7,8 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5FC9B9F68BB6D551A38F6988 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = 4645FA963C639EABEC792883 /* Tokenizers */; };
-		C24E845C8646B8534A5B4703 /* HuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = B1DF85E19FCFD348C61747A2 /* HuggingFace */; };
 		EAB010D72FF33AF400872073 /* MLXHuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = EAB010D62FF33AF400872073 /* MLXHuggingFace */; };
 		EAB010D92FF33AF400872073 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = EAB010D82FF33AF400872073 /* MLXLMCommon */; };
 /* End PBXBuildFile section */
@@ -57,15 +55,11 @@
 		};
 		EAC42EF32F2979D9005A99B6 /* ECHO-macOS-AppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "ECHO-macOS-AppTests";
 			sourceTree = "<group>";
 		};
 		EAC42EFD2F2979D9005A99B6 /* ECHO-macOS-AppUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "ECHO-macOS-AppUITests";
 			sourceTree = "<group>";
 		};
@@ -78,8 +72,6 @@
 			files = (
 				EAB010D92FF33AF400872073 /* MLXLMCommon in Frameworks */,
 				EAB010D72FF33AF400872073 /* MLXHuggingFace in Frameworks */,
-				C24E845C8646B8534A5B4703 /* HuggingFace in Frameworks */,
-				5FC9B9F68BB6D551A38F6988 /* Tokenizers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -100,20 +92,12 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		EA62EA162FF33E1E00EA9C27 /* Frameworks */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			name = Frameworks;
-			sourceTree = "<group>";
-		};
 		EAC42EDA2F2979D8005A99B6 = {
 			isa = PBXGroup;
 			children = (
 				EAC42EE52F2979D8005A99B6 /* ECHO-macOS-App */,
 				EAC42EF32F2979D9005A99B6 /* ECHO-macOS-AppTests */,
 				EAC42EFD2F2979D9005A99B6 /* ECHO-macOS-AppUITests */,
-				EA62EA162FF33E1E00EA9C27 /* Frameworks */,
 				EAC42EE42F2979D8005A99B6 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -150,8 +134,6 @@
 			packageProductDependencies = (
 				EAB010D62FF33AF400872073 /* MLXHuggingFace */,
 				EAB010D82FF33AF400872073 /* MLXLMCommon */,
-				B1DF85E19FCFD348C61747A2 /* HuggingFace */,
-				4645FA963C639EABEC792883 /* Tokenizers */,
 			);
 			productName = "ECHO-macOS-App";
 			productReference = EAC42EE32F2979D8005A99B6 /* ECHO-macOS-App.app */;
@@ -174,6 +156,8 @@
 				EAC42EF32F2979D9005A99B6 /* ECHO-macOS-AppTests */,
 			);
 			name = "ECHO-macOS-AppTests";
+			packageProductDependencies = (
+			);
 			productName = "ECHO-macOS-AppTests";
 			productReference = EAC42EF02F2979D9005A99B6 /* ECHO-macOS-AppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -195,6 +179,8 @@
 				EAC42EFD2F2979D9005A99B6 /* ECHO-macOS-AppUITests */,
 			);
 			name = "ECHO-macOS-AppUITests";
+			packageProductDependencies = (
+			);
 			productName = "ECHO-macOS-AppUITests";
 			productReference = EAC42EFA2F2979D9005A99B6 /* ECHO-macOS-AppUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -635,16 +621,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		4645FA963C639EABEC792883 /* Tokenizers */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
-			productName = Tokenizers;
-		};
-		B1DF85E19FCFD348C61747A2 /* HuggingFace */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
-			productName = HuggingFace;
-		};
 		EAB010D62FF33AF400872073 /* MLXHuggingFace */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
