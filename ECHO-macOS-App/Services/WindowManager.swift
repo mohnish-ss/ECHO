@@ -62,7 +62,13 @@ class WindowManager {
             return nil
         }
 
-        let filter = SCContentFilter(display: mainDisplay, excludingWindows: [])
+        let sensitiveApps = ["1Password", "Bitwarden", "Keychain Access", "System Settings", "Authenticator", "Authy"]
+        let excludedWindows = content.windows.filter { window in
+            guard let appName = window.owningApplication?.applicationName else { return false }
+            return sensitiveApps.contains(appName)
+        }
+
+        let filter = SCContentFilter(display: mainDisplay, excludingWindows: excludedWindows)
         let configuration = SCStreamConfiguration()
         configuration.width = mainDisplay.width
         configuration.height = mainDisplay.height

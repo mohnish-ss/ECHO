@@ -34,13 +34,14 @@ class LLMService {
     func classifyProject(event: Event, existingProjects: [String]) async throws -> (name: String, category: String) {
         let existingList = existingProjects.isEmpty ? "None yet" : existingProjects.joined(separator: ", ")
         
+        let safeContent = event.text.prefix(500).replacingOccurrences(of: "\n", with: " ")
         let prompt = """
         Classify this computer activity into a Project and Category.
 
         Activity:
         - App: \(event.source)
         - Window: \(event.windowName ?? "Unknown")
-        - Content: \(event.text.prefix(500))
+        - Content: \(safeContent)
 
         Existing Projects: \(existingList)
 
@@ -286,7 +287,7 @@ class LLMService {
                 let time = timeFormatter.string(from: event.timestamp)
                 let app = event.source
                 let window = event.windowName ?? ""
-                let desc = event.text.prefix(80)
+                let desc = event.text.prefix(80).replacingOccurrences(of: "\n", with: " ")
                 let project = event.projectName ?? ""
                 
                 context += "  [\(time)] \(app)"
