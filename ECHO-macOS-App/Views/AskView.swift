@@ -19,7 +19,7 @@ struct ChatMessage: Identifiable, Codable {
 
 struct AskView: View {
     @Bindable var activityManager: ActivityManager
-    @State private var llmService = LLMService()
+    @State private var llmService = NativeLLMService()
     @State private var query: String = ""
     @State private var messages: [ChatMessage] = []
     @State private var isLoading = false

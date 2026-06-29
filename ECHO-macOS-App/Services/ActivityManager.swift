@@ -115,7 +115,7 @@ class ActivityManager {
     private var captureTask: Task<Void, Never>?
     
     // LLM and project detection
-    private var llmService: LLMService?
+    private var llmService: NativeLLMService?
     private var projectDetectionService: ProjectDetectionService?
     
     // Track recent events to prevent duplicates
@@ -151,9 +151,9 @@ class ActivityManager {
     
     /// Initialize LLM and project detection services
     private func initializeLLMServices() {
-        llmService = LLMService()
-        if let llm = llmService {
-            projectDetectionService = ProjectDetectionService(llmService: llm)
+        llmService = NativeLLMService()
+        if let llmService = llmService {
+            projectDetectionService = ProjectDetectionService(llmService: llmService)
         }
     }
     

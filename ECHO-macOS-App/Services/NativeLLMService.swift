@@ -12,39 +12,38 @@ class NativeLLMService {
     private let modelID = "mlx-community/Llama-3.2-3B-Instruct-4bit"
     
     // We keep the model and tokenizer in memory once loaded
-    private var modelContext: ModelContext?
-    
-    // Helper tuple to store the model and tokenizer
-    private typealias ModelContext = (model: MLXLMCommon.Model, tokenizer: Tokenizer)
+    private var modelContainer: ModelContainer?
     
     /// Loads the model into memory. Downloads it from HuggingFace on the first run.
-    private func loadModelIfNeeded() async throws -> ModelContext {
-        if let context = modelContext { return context }
+    private func loadModelIfNeeded() async throws -> ModelContainer {
+        if let container = modelContainer { return container }
         
-        // This will automatically download the model on the first run and cache it locally.
-        let model = try await loadModel(id: modelID) { progress in
+        let config = ModelConfiguration(id: modelID)
+        let container = try await loadModelContainer(
+            from: #hubDownloader(),
+            using: #huggingFaceTokenizerLoader(),
+            configuration: config
+        ) { progress in
             // You can optionally broadcast this progress to the UI later!
             print("Downloading Llama 3.2: \(Int(progress.fractionCompleted * 100))%")
         }
         
-        // Load the tokenizer for the model
-        let tokenizer = try await loadTokenizer(id: modelID)
-        
-        let context = (model: model, tokenizer: tokenizer)
-        self.modelContext = context
-        return context
+        self.modelContainer = container
+        return container
     }
     
     /// Generates text using the native MLX model
     private func generate(prompt: String, maxTokens: Int = 800) async throws -> String {
-        let context = try await loadModelIfNeeded()
+        let container = try await loadModelIfNeeded()
         
         // Create a ChatSession to manage generation
-        let session = ChatSession(model: context.model, tokenizer: context.tokenizer)
+        var params = GenerateParameters()
+        params.maxTokens = maxTokens
+        let session = ChatSession(container, generateParameters: params)
         
         // Note: Llama-3.2 has a specific instruction format, but ChatSession usually handles 
         // applying the chat template if you pass it structured messages. For raw prompts, respond(to:) works great.
-        let response = try await session.respond(to: prompt, maxTokens: maxTokens)
+        let response = try await session.respond(to: prompt)
         return response
     }
 

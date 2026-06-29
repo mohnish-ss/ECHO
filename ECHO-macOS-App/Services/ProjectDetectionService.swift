@@ -2,7 +2,7 @@ import Foundation
 
 /// Service for detecting and managing projects from user activity
 class ProjectDetectionService {
-    private let llmService: LLMService
+    private let llmService: NativeLLMService
     
     /// Apps that should never create projects
     private let sourceBlacklist: Set<String> = [
@@ -24,7 +24,7 @@ class ProjectDetectionService {
         "xcode", "contents", "resources", "frameworks"
     ]
     
-    init(llmService: LLMService) {
+    init(llmService: NativeLLMService) {
         self.llmService = llmService
     }
     
