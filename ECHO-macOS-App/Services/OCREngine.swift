@@ -67,7 +67,7 @@ class OCREngine {
         }
         
         // 4. Configure the request (optional tweaks)
-        request.recognitionLevel = .accurate // More thorough scan
+        request.recognitionLevel = .fast // More performant for continuous scanning
         request.usesLanguageCorrection = true
         
         // 5. Run the request using an Image Request Handler

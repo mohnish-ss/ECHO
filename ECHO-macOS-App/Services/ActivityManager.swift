@@ -112,7 +112,7 @@ class ActivityManager {
     private var modelContext: ModelContext?
     private let ocrEngine = OCREngine()
     private let windowManager = WindowManager()
-    private var captureTimer: Timer?
+    private var captureTask: Task<Void, Never>?
     
     // LLM and project detection
     private var llmService: LLMService?
@@ -376,19 +376,14 @@ class ActivityManager {
     /// Start automatic screen capture at the configured interval
     @MainActor
     func startTracking() {
-        guard captureTimer == nil else { return }  // Only skip if timer is already running
+        guard captureTask == nil else { return }  // Only skip if task is already running
         
         isAutoCapturing = true
         
-        // Perform initial capture
-        Task {
-            await performAutomaticCapture()
-        }
-        
-        // Schedule periodic captures
-        captureTimer = Timer.scheduledTimer(withTimeInterval: captureInterval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                await self?.performAutomaticCapture()
+        captureTask = Task { @MainActor in
+            while !Task.isCancelled {
+                await self.performAutomaticCapture()
+                try? await Task.sleep(nanoseconds: UInt64(self.captureInterval * 1_000_000_000))
             }
         }
         
@@ -401,8 +396,8 @@ class ActivityManager {
         guard isAutoCapturing else { return }
         
         isAutoCapturing = false
-        captureTimer?.invalidate()
-        captureTimer = nil
+        captureTask?.cancel()
+        captureTask = nil
         
         print("⏹️ Tracking stopped")
     }
@@ -503,7 +498,8 @@ class ActivityManager {
                         type: eventType,
                         text: summary,
                         meta: meta,
-                        windowName: window.windowTitle
+                        windowName: window.windowTitle,
+                        skipRecalculate: true
                     )
                 }
             }
@@ -826,6 +822,9 @@ class ActivityManager {
         ocrResults = []
         mappedWindows = []
         
+        // Get visible windows first since it is now async
+        let windows = await windowManager.getVisibleWindows()
+        
         // Perform OCR on the captured image
         await withCheckedContinuation { continuation in
             ocrEngine.performOCR(on: image) { [weak self] results in
@@ -835,9 +834,6 @@ class ActivityManager {
                 }
                 
                 self.ocrResults = results
-                
-                // Get visible windows
-                let windows = self.windowManager.getVisibleWindows()
                 
                 // Map text to windows
                 var windowMapping: [UUID: [OCRResult]] = [:]
@@ -884,7 +880,8 @@ class ActivityManager {
                     meta: nil,
                     windowName: mapped.window.displayName,
                     ocrText: text.text,
-                    bounds: boundsJSON
+                    bounds: boundsJSON,
+                    skipRecalculate: true
                 )
             }
         }
@@ -945,7 +942,7 @@ class ActivityManager {
     }
     
     /// Enhanced addEvent with OCR support
-    func addEvent(source: String, type: String, text: String, meta: String? = nil, windowName: String? = nil, ocrText: String? = nil, bounds: String? = nil) {
+    func addEvent(source: String, type: String, text: String, meta: String? = nil, windowName: String? = nil, ocrText: String? = nil, bounds: String? = nil, skipRecalculate: Bool = false) {
         let newEvent = Event(
             source: source,
             type: type,
@@ -963,7 +960,9 @@ class ActivityManager {
         
         context.insert(newEvent)
         events.append(newEvent)
-        recalculateStats()
+        if !skipRecalculate {
+            recalculateStats()
+        }
         
         // Update current state
         currentFile = text
