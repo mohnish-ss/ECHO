@@ -415,11 +415,10 @@ struct AskView: View {
 struct ThinkingWaveLoader: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let dotCount = 5
+    private let dotCount = 3
     private let dotSize: CGFloat = 6
     private let dotSpacing: CGFloat = 7
     private let maxLift: CGFloat = 10
-    private let lineHeight: CGFloat = 1
     private let cycleDuration: TimeInterval = 1.2
     private let dotStagger: TimeInterval = 0.12
 
@@ -428,28 +427,20 @@ struct ThinkingWaveLoader: View {
     }
 
     private var loaderHeight: CGFloat {
-        maxLift + dotSize + lineHeight
+        maxLift + dotSize
     }
 
     var body: some View {
         SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
-            ZStack(alignment: .bottomLeading) {
-                Capsule()
-                    .fill(Color.secondary.opacity(0.22))
-                    .frame(width: loaderWidth, height: lineHeight)
-
-                HStack(spacing: dotSpacing) {
-                    ForEach(0..<dotCount, id: \.self) { index in
-                        Circle()
-                            .fill(Color.cyan)
-                            .frame(width: dotSize, height: dotSize)
-                            .offset(y: -lift(for: index, at: timeline.date))
-                    }
+            HStack(spacing: dotSpacing) {
+                ForEach(0..<dotCount, id: \.self) { index in
+                    Circle()
+                        .fill(Color.cyan)
+                        .frame(width: dotSize, height: dotSize)
+                        .offset(y: -lift(for: index, at: timeline.date))
                 }
-                .frame(width: loaderWidth, height: loaderHeight - lineHeight, alignment: .bottom)
-                .padding(.bottom, lineHeight)
             }
-            .frame(width: loaderWidth, height: loaderHeight, alignment: .bottomLeading)
+            .frame(width: loaderWidth, height: loaderHeight, alignment: .bottom)
         }
         .frame(width: loaderWidth, height: loaderHeight)
         .accessibilityElement(children: .ignore)

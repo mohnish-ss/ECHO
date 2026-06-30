@@ -1,6 +1,7 @@
 import Foundation
 import SwiftData
 import SwiftUI
+import AppKit
 
 // MARK: - Data Models
 
@@ -421,25 +422,23 @@ class ActivityManager {
     /// Perform automatic capture and store lightweight metadata for later compilation
     @MainActor
     private func performAutomaticCapture() async {
+        await captureCurrentScreenAsPending(triggerAutoCompile: true)
+    }
+
+    /// Capture the current screen, run OCR, and store a compact snapshot for compilation.
+    @MainActor
+    private func captureCurrentScreenAsPending(triggerAutoCompile: Bool) async {
         await performScreenCapture()
-        
-        guard !mappedWindows.isEmpty else { return }
-        
-        // Convert to lightweight snapshots immediately — no NSImage retained
-        // Take top 3 windows by text content (not just the primary)
-        let topWindows = mappedWindows.prefix(3)
-        let snapshots = topWindows.map { mapped in
-            WindowSnapshot(
-                appName: mapped.window.ownerName,
-                windowTitle: mapped.window.windowTitle,
-                ocrTextContent: mapped.containedText.map { $0.text }.joined(separator: "\n"),
-                textCount: mapped.containedText.count
-            )
+
+        let snapshots = windowSnapshotsFromLatestCapture()
+        guard !snapshots.isEmpty else {
+            print("⚠️ Capture skipped: no OCR text was detected")
+            return
         }
         
         let capture = PendingCapture(
             timestamp: Date(),
-            windowSnapshots: Array(snapshots)
+            windowSnapshots: snapshots
         )
         pendingCaptures.append(capture)
         
@@ -452,17 +451,49 @@ class ActivityManager {
         
         // Auto-compile if threshold reached
         let timeSinceFirst = Date().timeIntervalSince(firstPendingTimestamp ?? Date())
-        if autoGenerateEvents && (pendingCount >= autoCompileThreshold || timeSinceFirst >= autoCompileTimeInterval) {
+        if triggerAutoCompile && autoGenerateEvents && (pendingCount >= autoCompileThreshold || timeSinceFirst >= autoCompileTimeInterval) {
             print("⚡ Auto-compile triggered (count: \(pendingCount), elapsed: \(Int(timeSinceFirst))s)")
-            compilePendingCaptures()
+            compilePendingCaptures(allowSingleCapture: false)
         }
     }
     
+    private func windowSnapshotsFromLatestCapture() -> [WindowSnapshot] {
+        if !mappedWindows.isEmpty {
+            // Convert to lightweight snapshots immediately - no NSImage retained.
+            // Take top 3 windows by text content, not just the primary window.
+            return mappedWindows.prefix(3).map { mapped in
+                WindowSnapshot(
+                    appName: mapped.window.ownerName,
+                    windowTitle: mapped.window.windowTitle,
+                    ocrTextContent: mapped.containedText.map { $0.text }.joined(separator: "\n"),
+                    textCount: mapped.containedText.count
+                )
+            }
+        }
+
+        let fallbackOCRText = ocrResults
+            .map { $0.text }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !fallbackOCRText.isEmpty else { return [] }
+
+        let frontmostApp = NSWorkspace.shared.frontmostApplication?.localizedName ?? "Screen"
+        return [
+            WindowSnapshot(
+                appName: frontmostApp,
+                windowTitle: "Current Screen",
+                ocrTextContent: fallbackOCRText,
+                textCount: ocrResults.count
+            )
+        ]
+    }
+
     /// Compile all pending captures into deduplicated events with batched LLM summarization
     @MainActor
-    func compilePendingCaptures() {
+    func compilePendingCaptures(allowSingleCapture: Bool = true) {
         Task {
-            await compilePendingCapturesAndWait()
+            await compilePendingCapturesAndWait(allowSingleCapture: allowSingleCapture)
         }
     }
 
@@ -473,16 +504,25 @@ class ActivityManager {
             await waitForCompilation()
         }
 
-        guard autoGenerateEvents, !pendingCaptures.isEmpty else {
+        guard autoGenerateEvents else {
             fetchTodayEvents()
             return
         }
 
-        await compilePendingCapturesAndWait()
+        if pendingCaptures.isEmpty {
+            await captureCurrentScreenAsPending(triggerAutoCompile: false)
+        }
+
+        guard !pendingCaptures.isEmpty else {
+            fetchTodayEvents()
+            return
+        }
+
+        await compilePendingCapturesAndWait(allowSingleCapture: true)
     }
 
     @MainActor
-    private func compilePendingCapturesAndWait() async {
+    private func compilePendingCapturesAndWait(allowSingleCapture: Bool) async {
         guard !pendingCaptures.isEmpty, !isCompiling else {
             if pendingCaptures.isEmpty {
                 print("⚠️ No captures to compile")
@@ -500,7 +540,10 @@ class ActivityManager {
         firstPendingTimestamp = nil
 
         // Step 1: Deduplicate — group all window snapshots by key, keep latest per unique state
-        let uniqueWindows = deduplicateWindowSnapshots(from: capturesToProcess)
+        let uniqueWindows = deduplicateWindowSnapshots(
+            from: capturesToProcess,
+            allowSingleCapture: allowSingleCapture
+        )
         print("📦 Grouped \(totalCount) captures into \(uniqueWindows.count) unique window states")
 
         // Step 1.5: Merge similar windows from the same app (e.g. multiple Chrome tabs about the same topic)
@@ -555,14 +598,14 @@ class ActivityManager {
     // Legacy API compatibility — SidebarView calls this name
     @MainActor
     func compilePendingScreenshots() {
-        compilePendingCaptures()
+        compilePendingCaptures(allowSingleCapture: true)
     }
     
     // MARK: - Compilation Helpers
     
     /// Deduplicate window snapshots with dwell-time filtering.
     /// Windows the user stayed on for < 2 captures (~10 seconds) are considered transient tab switches and excluded.
-    private func deduplicateWindowSnapshots(from captures: [PendingCapture]) -> [WindowSnapshot] {
+    private func deduplicateWindowSnapshots(from captures: [PendingCapture], allowSingleCapture: Bool) -> [WindowSnapshot] {
         // Track how many captures each window key appeared in (dwell-time proxy)
         var appearanceCount: [String: Int] = [:]
         var latestByKey: [String: WindowSnapshot] = [:]
@@ -589,8 +632,9 @@ class ActivityManager {
             }
         }
         
-        // Filter out transient windows (appeared in < 2 captures ≈ < 10 seconds)
-        let minDwellCount = 2
+        // Filter out transient windows during automatic background batches.
+        // Query/manual compiles accept one capture so granted screenshots become usable context immediately.
+        let minDwellCount = allowSingleCapture ? 1 : 2
         let dwellFiltered = latestByKey.filter { key, _ in
             let count = appearanceCount[key] ?? 0
             return count >= minDwellCount

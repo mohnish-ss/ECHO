@@ -100,14 +100,17 @@ class NativeLLMService {
         }.joined(separator: "\n\n")
 
         let prompt = """
-        Summarize each captured computer activity into a concise, human-readable activity label.
+        Convert each OCR-backed screen capture into a concise productivity activity label.
 
         Rules:
         - Return strictly valid JSON only.
         - The JSON must be an object with a "summaries" array.
         - The array must contain exactly \(activities.count) strings in the same order.
         - Each summary should be 4-12 words.
-        - Prefer the concrete task, file, page, or project over generic app names.
+        - Use the OCR text as the main evidence. Prefer concrete files, pages, code symbols, documents, assignments, tickets, or project names visible in OCR.
+        - Do not summarize as a generic app action when OCR reveals the real task.
+        - If OCR is empty or unreadable, use the window title and app as the fallback.
+        - Do not invent work that is not visible in the OCR, window title, or app.
 
         Activities:
         \(activityList)
@@ -265,12 +268,17 @@ class NativeLLMService {
     // MARK: - Formatting Helpers
     
     private let systemPrompt = """
-    You are ECHO, a deeply integrated, highly intelligent personal productivity assistant. 
-    Your entire purpose is to help the user understand how they spend their time on their computer, answer questions about their past activity, and recall information they've seen.
-    
-    You will be provided with a log of the user's computer activity. Each event represents a snapshot of what was on their screen.
-    Use this data to answer their questions precisely and concisely.
-    If you don't know the answer based on the activity data, politely state that you cannot find that information in the recent logs.
+    You are ECHO, a local productivity analyst. Your job is to answer questions about the user's computer productivity using only the provided activity log.
+
+    The activity log is built from screenshots, OCR text, active apps, window titles, timestamps, and project labels. Treat OCR snippets as primary evidence because they show what was actually visible on screen.
+
+    Response rules:
+    - Stay grounded in the activity data. Do not infer facts that are not supported by app, window, project, timestamp, summary, or OCR evidence.
+    - For productivity questions, mention concrete evidence: times, apps, projects, windows, and OCR-visible task names when available.
+    - Prefer useful synthesis over generic encouragement: identify focused work, context switching, likely distractions, long gaps, repeated apps, and visible deliverables.
+    - If the data is sparse, say exactly what is missing, such as "I only have one OCR-backed event" or "I do not see enough screenshots to estimate that."
+    - If the answer is not in the logs, say you cannot find it in the captured activity data.
+    - Keep answers concise unless the user asks for a detailed breakdown.
     """
     
     private func formatEventsAsContext(_ events: [Event]) -> String {
@@ -290,7 +298,16 @@ class NativeLLMService {
         let sortedDays = groupedEvents.keys.sorted()
         
         var context = "[DATA]\n"
-        context += "Today's date: \(formatDate(Date()))\n\n"
+        let ocrBackedCount = sortedEvents.filter { event in
+            guard let ocrText = event.ocrText?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return false
+            }
+            return !ocrText.isEmpty
+        }.count
+
+        context += "Today's date: \(formatDate(Date()))\n"
+        context += "Total events: \(sortedEvents.count)\n"
+        context += "OCR-backed screenshot events: \(ocrBackedCount)\n\n"
         
         for date in sortedDays {
             guard let dayEvents = groupedEvents[date] else { continue }
@@ -301,15 +318,16 @@ class NativeLLMService {
             context += "=== \(formatDate(date)) ===\n"
             context += "Active Time: \(formattedDuration)\n"
             context += "Events: \(dayEvents.count)\n"
+            context += "OCR-backed Events: \(dayEvents.filter { ($0.ocrText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false }.count)\n"
             
             context += "\nEvent Log:\n"
             for event in dayEvents.prefix(50) {
                 let time = timeFormatter.string(from: event.timestamp)
                 let app = event.source
                 let window = event.windowName ?? ""
-                let desc = event.text.prefix(80).replacingOccurrences(of: "\n", with: " ")
+                let desc = event.text.prefix(140).replacingOccurrences(of: "\n", with: " ")
                 let ocrSnippet = event.ocrText?
-                    .prefix(220)
+                    .prefix(360)
                     .replacingOccurrences(of: "\n", with: " ")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 let project = event.projectName ?? ""
@@ -317,9 +335,10 @@ class NativeLLMService {
                 context += "  [\(time)] \(app)"
                 if !window.isEmpty { context += " | \(window)" }
                 if !project.isEmpty { context += " | proj:\(project)" }
-                context += " — \(desc)\n"
+                context += " | type:\(event.type)"
+                context += " | summary: \(desc)\n"
                 if let ocrSnippet, !ocrSnippet.isEmpty, ocrSnippet != desc {
-                    context += "    OCR: \(ocrSnippet)\n"
+                    context += "    OCR evidence: \(ocrSnippet)\n"
                 }
             }
             if dayEvents.count > 50 {
