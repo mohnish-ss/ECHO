@@ -1,14 +1,59 @@
 import SwiftUI
+import SwiftData
 
 struct ProjectsView: View {
-    // Ready for backend integration - empty projects array
-    @State private var projects: [ProjectItem] = []
+    @Query private var projects: [Project]
+    @Query private var events: [Event]
+    @Environment(\.modelContext) private var modelContext
+    
     @State private var showingAddProject = false
+    @State private var selectedProject: Project?
     @State private var newProjectName = ""
     @State private var newProjectDescription = ""
     @State private var newProjectColor: Color = .blue
     
+    // Calculate statistics from real data
+    var totalHours: Int {
+        var total = 0.0
+        for project in projects {
+            total += calculateHours(for: project)
+        }
+        return Int(total)
+    }
+    
+    var totalCommits: Int {
+        // Placeholder - would need git integration
+        return 0
+    }
+    
     var body: some View {
+        Group {
+            if let project = selectedProject {
+                ProjectDetailView(project: project, onBack: {
+                    selectedProject = nil
+                })
+            } else {
+                projectsListContent
+            }
+        }
+        .padding(30)
+        .sheet(isPresented: $showingAddProject) {
+            AddProjectSheet(
+                projectName: $newProjectName,
+                projectDescription: $newProjectDescription,
+                projectColor: $newProjectColor,
+                onAdd: {
+                    addProject()
+                },
+                onCancel: {
+                    showingAddProject = false
+                    resetForm()
+                }
+            )
+        }
+    }
+    
+    private var projectsListContent: some View {
         VStack(alignment: .leading, spacing: 30) {
             // Header
             HStack {
@@ -37,9 +82,9 @@ struct ProjectsView: View {
             
             // Stats Grid
             HStack(spacing: 20) {
-                ProjectStatCard(value: "\(calculateTotalHours())", label: "Total Hours")
+                ProjectStatCard(value: "\(totalHours)h", label: "Total Hours")
                 ProjectStatCard(value: "\(projects.count)", label: "Active Projects")
-                ProjectStatCard(value: "\(calculateTotalCommits())", label: "Total Commits")
+                ProjectStatCard(value: "\(totalCommits)", label: "Total Commits")
             }
             
             // Projects List
@@ -47,54 +92,50 @@ struct ProjectsView: View {
                 if projects.isEmpty {
                     VStack(spacing: 12) {
                         Image(systemName: "folder.badge.plus")
-                            .font(.system(size: 48))
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 60)
+                        .font(.system(size: 48))
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 60)
                         Text("No projects yet")
                             .font(.title3)
                             .fontWeight(.medium)
-                        Text("Click 'New Project' to add your first project")
+                        Text("Projects will be auto-created as you work, or click 'New Project'")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 40)
                 } else {
                     VStack(spacing: 16) {
                         ForEach(projects) { project in
-                            ProjectRowItem(project: project)
+                            Button {
+                                selectedProject = project
+                            } label: {
+                                ProjectRowItem(
+                                    project: project,
+                                    hours: calculateHours(for: project),
+                                    files: calculateFiles(for: project),
+                                    eventCount: eventsCount(for: project)
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
                         }
                     }
                 }
             }
         }
-        .padding(30)
-        .sheet(isPresented: $showingAddProject) {
-            AddProjectSheet(
-                projectName: $newProjectName,
-                projectDescription: $newProjectDescription,
-                projectColor: $newProjectColor,
-                onAdd: {
-                    addProject()
-                },
-                onCancel: {
-                    showingAddProject = false
-                    resetForm()
-                }
-            )
-        }
     }
     
     private func addProject() {
-        let newProject = ProjectItem(
+        let colorHex = newProjectColor.toHex() ?? "#3B82F6"
+        let newProject = Project(
             name: newProjectName,
             desc: newProjectDescription,
-            hours: 0,
-            files: 0,
-            commits: 0,
-            color: newProjectColor
+            colorHex: colorHex,
+            isAutoCreated: false
         )
-        projects.append(newProject)
+        modelContext.insert(newProject)
         showingAddProject = false
         resetForm()
     }
@@ -105,12 +146,28 @@ struct ProjectsView: View {
         newProjectColor = .blue
     }
     
-    private func calculateTotalHours() -> Int {
-        projects.reduce(0) { $0 + $1.hours }
+    // Calculate hours for a project from its events
+    private func calculateHours(for project: Project) -> Double {
+        let projectEvents = events.filter { $0.projectName == project.name }
+        guard !projectEvents.isEmpty else { return 0 }
+        
+        let sorted = projectEvents.sorted { $0.timestamp < $1.timestamp }
+        if let first = sorted.first, let last = sorted.last {
+            return last.timestamp.timeIntervalSince(first.timestamp) / 3600.0
+        }
+        return 0
     }
     
-    private func calculateTotalCommits() -> Int {
-        projects.reduce(0) { $0 + $1.commits }
+    // Calculate unique files for a project
+    private func calculateFiles(for project: Project) -> Int {
+        let projectEvents = events.filter { $0.projectName == project.name }
+        let uniqueFiles = Set(projectEvents.map { $0.text })
+        return uniqueFiles.count
+    }
+    
+    // Count events for a project
+    private func eventsCount(for project: Project) -> Int {
+        return events.filter { $0.projectName == project.name }.count
     }
 }
 
@@ -140,70 +197,138 @@ struct ProjectStatCard: View {
 }
 
 struct ProjectRowItem: View {
-    let project: ProjectItem
+    let project: Project
+    let hours: Double
+    let files: Int
+    let eventCount: Int
+    
+    var projectColor: Color {
+        Color(hex: project.colorHex) ?? .blue
+    }
     
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            // Dot
-            Circle()
-                .fill(project.color)
-                .frame(width: 8, height: 8)
-                .padding(.top, 8)
+        HStack(alignment: .top, spacing: 0) {
+            // Colored accent bar
+            RoundedRectangle(cornerRadius: 16)
+                .fill(projectColor)
+                .frame(width: 4)
             
-            VStack(alignment: .leading, spacing: 16) {
-                // Header
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(project.name)
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                        Text(project.desc)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    if project.name == "ECHO Project" {
-                        Text("Active")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.green)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.green.opacity(0.15))
-                            .clipShape(Capsule())
-                    }
+            HStack(alignment: .top, spacing: 16) {
+                // Larger colored dot with icon
+                ZStack {
+                    Circle()
+                        .fill(projectColor.opacity(0.1))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: getCategoryIcon(project.category))
+                        .foregroundStyle(projectColor)
+                        .font(.system(size: 18))
                 }
                 
-                // Stats
-                HStack(spacing: 24) {
-                    Label("\(project.hours) hours", systemImage: "clock")
-                    Label("\(project.files) files", systemImage: "doc")
-                    Label("\(project.commits) commits", systemImage: "arrow.triangle.branch")
+                VStack(alignment: .leading, spacing: 16) {
+                    // Header
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(project.displayName)
+                                    .font(.title3)
+                                    .fontWeight(.semibold)
+                                
+                                if let category = project.category {
+                                    Text(category)
+                                        .font(.caption)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 2)
+                                        .background(projectColor.opacity(0.1))
+                                        .foregroundStyle(projectColor)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                            
+                            if !project.desc.isEmpty {
+                                Text(project.desc)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                            if project.isAutoCreated {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "sparkles")
+                                        .font(.caption2)
+                                    Text("Auto-created")
+                                        .font(.caption2)
+                                }
+                                .foregroundStyle(projectColor)
+                            }
+                        }
+                        Spacer()
+                    }
+                    
+                    // Stats
+                    HStack(spacing: 24) {
+                        Label(String(format: "%.1fh", hours), systemImage: "clock.fill")
+                        Label("\(files) files", systemImage: "doc.fill")
+                        Label("\(eventCount) events", systemImage: "calendar")
+                    }
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
                 }
-                .font(.callout)
-                .foregroundStyle(.secondary)
             }
+            .padding(20)
         }
-        .padding(20)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.cardBackground)
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.subtleBorder, lineWidth: 1)
+                        .stroke(projectColor.opacity(0.2), lineWidth: 1)
                 )
         )
     }
+    
+    func getCategoryIcon(_ category: String?) -> String {
+        guard let category = category else { return "folder.fill" }
+        switch category.lowercased() {
+        case "coding", "development": return "hammer.fill"
+        case "communication", "chat": return "bubble.left.and.bubble.right.fill"
+        case "entertainment", "media": return "play.rectangle.fill"
+        case "design": return "paintbrush.fill"
+        case "browsing", "research": return "safari.fill"
+        case "writing": return "pencil.and.outline"
+        default: return "folder.fill"
+        }
+    }
+    
+
 }
 
-struct ProjectItem: Identifiable {
-    let id = UUID()
-    let name: String
-    let desc: String
-    let hours: Int
-    let files: Int
-    let commits: Int
-    let color: Color
+// Remove old ProjectItem struct
+// Add Color extension for hex support
+extension Color {
+    init?(hex: String) {
+        var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        hexSanitized = hexSanitized.replacingOccurrences(of: "#", with: "")
+        
+        var rgb: UInt64 = 0
+        guard Scanner(string: hexSanitized).scanHexInt64(&rgb) else { return nil }
+        
+        let r = Double((rgb & 0xFF0000) >> 16) / 255.0
+        let g = Double((rgb & 0x00FF00) >> 8) / 255.0
+        let b = Double(rgb & 0x0000FF) / 255.0
+        
+        self.init(red: r, green: g, blue: b)
+    }
+    
+    func toHex() -> String? {
+        guard let components = NSColor(self).cgColor.components, components.count >= 3 else {
+            return nil
+        }
+        
+        let r = Int(components[0] * 255.0)
+        let g = Int(components[1] * 255.0)
+        let b = Int(components[2] * 255.0)
+        
+        return String(format: "#%02X%02X%02X", r, g, b)
+    }
 }
 
 // MARK: - Add Project Sheet

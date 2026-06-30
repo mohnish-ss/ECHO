@@ -6,6 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		EA62EA812FF33ED000EA9C27 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = EA62EA802FF33ED000EA9C27 /* Tokenizers */; };
+		EAB010D72FF33AF400872073 /* MLXHuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = EAB010D62FF33AF400872073 /* MLXHuggingFace */; };
+		EAB010D92FF33AF400872073 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = EAB010D82FF33AF400872073 /* MLXLMCommon */; };
+		EAB010DB2FF33AF400872073 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = EAB010DA2FF33AF400872073 /* MLXLLM */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		EAC42EF12F2979D9005A99B6 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,9 +36,22 @@
 		EAC42EFA2F2979D9005A99B6 /* ECHO-macOS-AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "ECHO-macOS-AppUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		EA2E68982F2C24770037AA61 /* Exceptions for "ECHO-macOS-App" folder in "ECHO-macOS-App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = EAC42EE22F2979D8005A99B6 /* ECHO-macOS-App */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		EAC42EE52F2979D8005A99B6 /* ECHO-macOS-App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				EA2E68982F2C24770037AA61 /* Exceptions for "ECHO-macOS-App" folder in "ECHO-macOS-App" target */,
+			);
 			path = "ECHO-macOS-App";
 			sourceTree = "<group>";
 		};
@@ -52,6 +72,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EAB010D92FF33AF400872073 /* MLXLMCommon in Frameworks */,
+				EAB010D72FF33AF400872073 /* MLXHuggingFace in Frameworks */,
+				EAB010DB2FF33AF400872073 /* MLXLLM in Frameworks */,
+				EA62EA812FF33ED000EA9C27 /* Tokenizers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +136,10 @@
 			);
 			name = "ECHO-macOS-App";
 			packageProductDependencies = (
+				EAB010D62FF33AF400872073 /* MLXHuggingFace */,
+				EAB010D82FF33AF400872073 /* MLXLMCommon */,
+				EAB010DA2FF33AF400872073 /* MLXLLM */,
+				EA62EA802FF33ED000EA9C27 /* Tokenizers */,
 			);
 			productName = "ECHO-macOS-App";
 			productReference = EAC42EE32F2979D8005A99B6 /* ECHO-macOS-App.app */;
@@ -171,7 +199,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 2620;
-				LastUpgradeCheck = 2620;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					EAC42EE22F2979D8005A99B6 = {
 						CreatedOnToolsVersion = 26.2;
@@ -195,6 +223,10 @@
 			);
 			mainGroup = EAC42EDA2F2979D8005A99B6;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				EA62EA7F2FF33ED000EA9C27 /* XCRemoteSwiftPackageReference "swift-transformers" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EAC42EE42F2979D8005A99B6 /* Products */;
 			projectDirPath = "";
@@ -303,6 +335,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -327,6 +360,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -366,6 +400,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -383,6 +418,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -392,13 +428,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = T55Y6A6V7Y;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "ECHO-macOS-App/Info.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -422,13 +462,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_APP_SANDBOX = YES;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = T55Y6A6V7Y;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "ECHO-macOS-App/Info.plist";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -453,6 +497,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
@@ -471,8 +516,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = T55Y6A6V7Y;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
 				MARKETING_VERSION = 1.0;
@@ -492,6 +540,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "qmind.ECHO-macOS-AppUITests";
@@ -508,8 +557,11 @@
 		EAC42F0C2F2979D9005A99B6 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = T55Y6A6V7Y;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "qmind.ECHO-macOS-AppUITests";
@@ -563,6 +615,48 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		EA62EA7F2FF33ED000EA9C27 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.3;
+			};
+		};
+		EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 3.31.3;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		EA62EA802FF33ED000EA9C27 /* Tokenizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EA62EA7F2FF33ED000EA9C27 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Tokenizers;
+		};
+		EAB010D62FF33AF400872073 /* MLXHuggingFace */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXHuggingFace;
+		};
+		EAB010D82FF33AF400872073 /* MLXLMCommon */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLMCommon;
+		};
+		EAB010DA2FF33AF400872073 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = EAC42EDB2F2979D8005A99B6 /* Project object */;
 }

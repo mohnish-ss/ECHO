@@ -12,9 +12,10 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var activityManager = ActivityManager()
     @State private var selection: NavigationItem? = .dashboard
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             SidebarView(activityManager: activityManager, selection: $selection)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 260, max: 300)
         } detail: {
@@ -26,15 +27,15 @@ struct ContentView: View {
                 case .dashboard:
                     DashboardView(activityManager: activityManager)
                 case .timeline:
-                    TimelineView()
+                    TimelineView(activityManager: activityManager)
                 case .ask:
-                    AskView()
+                    AskView(activityManager: activityManager)
                 case .projects:
                     ProjectsView()
                 case .settings:
                     SettingsView(activityManager: activityManager)
                 case .profile:
-                    ProfileView()
+                    ProfileView(activityManager: activityManager)
                 case .none:
                     Text("Select an item")
                 }

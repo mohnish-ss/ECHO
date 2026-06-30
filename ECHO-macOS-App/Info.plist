@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>qmind.ECHO-macOS-App</string>
+	<key>NSAccessibilityUsageDescription</key>
+	<string>ECHO needs accessibility access to track window positions and application activity for productivity monitoring.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>ECHO needs screen recording permission to capture screenshots for OCR text analysis and activity tracking.</string>
+</dict>
+</plist>

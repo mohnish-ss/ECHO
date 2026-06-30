@@ -15,9 +15,7 @@ struct DashboardView: View {
                     
                     Group {
                         if activityManager.stats.hours > 0 {
-                            Text("You spent ") +
-                            Text("\(String(format: "%.1f", activityManager.stats.hours)) hours").foregroundStyle(Color.blue).fontWeight(.semibold) +
-                            Text(" working across \(activityManager.stats.projects) projects, tracking \(activityManager.events.count) events.")
+                            Text("You spent **\(String(format: "%.1f", activityManager.stats.hours)) hours** working across \(activityManager.stats.projects) projects, tracking \(activityManager.events.count) events.")
                         } else {
                             Text("No activity recorded yet for today.")
                         }

@@ -1,15 +1,49 @@
 import SwiftUI
 
 struct ProfileView: View {
-    @State private var userName = "John Doe"
-    @State private var userTitle = "Full-Stack Developer"
-    @State private var userEmail = "john@example.com"
+    // Persistent profile data
+    @AppStorage("userName") private var userName = "John Doe"
+    @AppStorage("userTitle") private var userTitle = "Full-Stack Developer"
+    @AppStorage("userEmail") private var userEmail = "john@example.com"
     @State private var showingEditProfile = false
     
     // Temporary state for editing
     @State private var editName = ""
     @State private var editTitle = ""
     @State private var editEmail = ""
+    
+    // Activity manager for real stats
+    @Bindable var activityManager: ActivityManager
+    
+    private let dayLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    
+    // Calculate real statistics from events
+    var totalHoursTracked: String {
+        let hours = activityManager.calculateTotalHours()
+        if hours >= 1 {
+            return String(format: "%.0fh", hours)
+        } else {
+            return String(format: "%.0fm", hours * 60)
+        }
+    }
+    
+    var activeStreak: String {
+        let days = activityManager.calculateWorkStreak()
+        return "\(days) day\(days == 1 ? "" : "s")"
+    }
+    
+    var weeklyHours: String {
+        let hours = activityManager.calculateWeeklyHours()
+        if hours >= 1 {
+            return String(format: "%.1f", hours)
+        } else {
+            return String(format: "%.0f min", hours * 60)
+        }
+    }
+    
+    var dailyHours: [Double] {
+        activityManager.calculateDailyHoursThisWeek()
+    }
     
     var userInitials: String {
         let components = userName.split(separator: " ")
@@ -19,6 +53,12 @@ struct ProfileView: View {
             return String(first.prefix(2)).uppercased()
         }
         return "JD"
+    }
+    
+    /// Which weekday index is today (Mon=0, Sun=6)
+    var todayIndex: Int {
+        let weekday = Calendar.current.component(.weekday, from: Date())
+        return weekday == 1 ? 6 : weekday - 2
     }
     
     var body: some View {
@@ -45,7 +85,6 @@ struct ProfileView: View {
                         
                         HStack(spacing: 16) {
                             Label(userEmail, systemImage: "envelope")
-                            Label("Joined Oct 2025", systemImage: "calendar")
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -84,32 +123,55 @@ struct ProfileView: View {
                 
                 // Stats Row
                 HStack(spacing: 20) {
-                    ProfileStatCard(icon: "clock", value: "257h", label: "Total Time Tracked", color: .blue)
-                    ProfileStatCard(icon: "flame", value: "12 days", label: "Active Streak", color: .orange)
+                    ProfileStatCard(icon: "clock", value: totalHoursTracked, label: "Total Time Tracked", color: .blue)
+                    ProfileStatCard(icon: "flame", value: activeStreak, label: "Active Streak", color: .orange)
                 }
                 
-                // Weekly Graph
+                // Weekly Graph — real data
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("This Week")
-                        .font(.title3)
-                        .fontWeight(.semibold)
+                    HStack {
+                        Text("This Week")
+                            .font(.title3)
+                            .fontWeight(.semibold)
+                        
+                        Spacer()
+                        
+                        Text("\(weeklyHours) hours total")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    
+                    let maxHours = max(dailyHours.max() ?? 1, 1)
                     
                     HStack(alignment: .bottom, spacing: 12) {
-                        GraphBar(day: "Mon", height: 80, active: true)
-                        GraphBar(day: "Tue", height: 60, active: true)
-                        GraphBar(day: "Wed", height: 100, active: true)
-                        GraphBar(day: "Thu", height: 70, active: true)
-                        GraphBar(day: "Fri", height: 50, active: true)
-                        GraphBar(day: "Sat", height: 10, active: false)
-                        GraphBar(day: "Sun", height: 10, active: false)
+                        ForEach(0..<7, id: \.self) { index in
+                            let hours = dailyHours[index]
+                            let barHeight = max(hours / maxHours * 100, hours > 0 ? 8 : 4)
+                            let isToday = index == todayIndex
+                            let isPast = index <= todayIndex
+                            
+                            VStack(spacing: 8) {
+                                // Hours label
+                                if hours > 0 {
+                                    Text(hours >= 1 ? String(format: "%.1fh", hours) : String(format: "%.0fm", hours * 60))
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(isToday ? .blue : .secondary)
+                                }
+                                
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(isToday ? Color.blue : (isPast && hours > 0 ? Color.blue.opacity(0.5) : Color.gray.opacity(0.15)))
+                                    .frame(height: barHeight)
+                                
+                                Text(dayLabels[index])
+                                    .font(.caption)
+                                    .fontWeight(isToday ? .semibold : .regular)
+                                    .foregroundStyle(isToday ? .blue : .secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                        }
                     }
-                    .frame(height: 120)
+                    .frame(height: 140)
                     .padding(.top, 10)
-                    
-                    Text("You've tracked 28 hours this week")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
                 }
                 .padding(24)
                 .background(
@@ -121,21 +183,62 @@ struct ProfileView: View {
                         )
                 )
                 
-                // Achievements
+                // Top Apps This Week
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Achievements")
+                    Text("Top Apps This Week")
                         .font(.title3)
                         .fontWeight(.semibold)
                     
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-                        AchievementCard(icon: "medal", title: "Early Adopter", desc: "Joined during beta", unlocked: true)
-                        AchievementCard(icon: "stopwatch", title: "100 Hours", desc: "Tracked 100 hours of work", unlocked: true)
-                        AchievementCard(icon: "arrow.triangle.branch", title: "Commit Champion", desc: "Made 100 commits in a month", unlocked: true)
-                        AchievementCard(icon: "moon.stars", title: "Night Owl", desc: "Worked after midnight 10 times", unlocked: false)
-                        AchievementCard(icon: "flame.fill", title: "Streak Master", desc: "7 day tracking streak", unlocked: false)
-                        AchievementCard(icon: "brain.head.profile", title: "Deep Focus", desc: "4 hour uninterrupted session", unlocked: false)
+                    let topApps = calculateTopAppsThisWeek()
+                    
+                    if topApps.isEmpty {
+                        HStack {
+                            Spacer()
+                            VStack(spacing: 8) {
+                                Image(systemName: "app.dashed")
+                                    .font(.title2)
+                                    .foregroundStyle(.secondary)
+                                Text("No app usage recorded this week")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 20)
+                            Spacer()
+                        }
+                    } else {
+                        let maxCount = topApps.first?.count ?? 1
+                        
+                        ForEach(topApps, id: \.name) { app in
+                            HStack(spacing: 12) {
+                                Text(app.name)
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                    .frame(width: 120, alignment: .leading)
+                                
+                                GeometryReader { geo in
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.blue.opacity(0.5))
+                                        .frame(width: max(geo.size.width * CGFloat(app.count) / CGFloat(maxCount), 4))
+                                }
+                                .frame(height: 20)
+                                
+                                Text("\(app.count)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 30, alignment: .trailing)
+                            }
+                        }
                     }
                 }
+                .padding(24)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.cardBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.subtleBorder, lineWidth: 1)
+                        )
+                )
             }
             .padding(30)
         }
@@ -155,6 +258,22 @@ struct ProfileView: View {
                 }
             )
         }
+    }
+    
+    private func calculateTopAppsThisWeek() -> [(name: String, count: Int)] {
+        let calendar = Calendar.current
+        let now = Date()
+        guard let weekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)) else {
+            return []
+        }
+        
+        let weekEvents = activityManager.events.filter { $0.timestamp >= weekStart }
+        var appCounts: [String: Int] = [:]
+        for event in weekEvents {
+            appCounts[event.source, default: 0] += 1
+        }
+        
+        return appCounts.sorted { $0.value > $1.value }.prefix(5).map { (name: $0.key, count: $0.value) }
     }
 }
 
@@ -195,59 +314,5 @@ struct ProfileStatCard: View {
     }
 }
 
-struct GraphBar: View {
-    let day: String
-    let height: CGFloat
-    let active: Bool
-    
-    var body: some View {
-        VStack {
-            Text(day)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            
-            RoundedRectangle(cornerRadius: 8)
-                .fill(active ? Color.blue.opacity(0.6) : Color.gray.opacity(0.2))
-                .frame(height: height)
-        }
-        .frame(maxWidth: .infinity)
-    }
-}
 
-struct AchievementCard: View {
-    let icon: String
-    let title: String
-    let desc: String
-    let unlocked: Bool
-    
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.title3)
-                .frame(width: 40, height: 40)
-                .background(unlocked ? Color.blue.opacity(0.1) : Color.gray.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .foregroundStyle(unlocked ? .blue : .gray)
-            
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .fontWeight(.medium)
-                    .foregroundStyle(unlocked ? .primary : .secondary)
-                Text(desc)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.cardBackground)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.subtleBorder, lineWidth: 1)
-                )
-        )
-        .opacity(unlocked ? 1.0 : 0.6)
-    }
-}
+
