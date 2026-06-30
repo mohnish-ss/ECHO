@@ -1,4 +1,5 @@
 import Foundation
+import MLXLLM
 import MLXLMCommon
 import MLXHuggingFace
 import HuggingFace
@@ -10,8 +11,8 @@ class NativeLLMService {
     var isProcessing = false
     var lastError: String?
     
-    // The specific model we want to pull from HuggingFace
-    private let modelID = "mlx-community/Llama-3.2-3B-Instruct-4bit"
+    // The specific model we want to pull from HuggingFace.
+    private let modelConfiguration = LLMRegistry.llama3_2_3B_4bit
     
     // We keep the model and tokenizer in memory once loaded
     private var modelContainer: ModelContainer?
@@ -20,11 +21,10 @@ class NativeLLMService {
     private func loadModelIfNeeded() async throws -> ModelContainer {
         if let container = modelContainer { return container }
         
-        let config = ModelConfiguration(id: modelID)
-        let container = try await loadModelContainer(
+        let container = try await LLMModelFactory.shared.loadContainer(
             from: #hubDownloader(),
             using: #huggingFaceTokenizerLoader(),
-            configuration: config
+            configuration: modelConfiguration
         ) { progress in
             // You can optionally broadcast this progress to the UI later!
             print("Downloading Llama 3.2: \(Int(progress.fractionCompleted * 100))%")
@@ -68,12 +68,65 @@ class NativeLLMService {
         
         return try await generate(prompt: prompt, maxTokens: 800)
     }
+
+    /// Compatibility API for views that used to check an Ollama daemon.
+    /// The native MLX service has no external server connection to probe.
+    func checkConnection() async -> Bool {
+        true
+    }
+
+    /// Summarize multiple captured window activities in one model call.
+    func batchSummarizeActivities(_ activities: [(appName: String, windowTitle: String, ocrText: String)]) async throws -> [String] {
+        guard !activities.isEmpty else { return [] }
+
+        isProcessing = true
+        defer { isProcessing = false }
+
+        let fallbackSummaries = activities.map { activity in
+            fallbackSummary(
+                appName: activity.appName,
+                windowTitle: activity.windowTitle,
+                ocrText: activity.ocrText
+            )
+        }
+
+        let activityList = activities.enumerated().map { index, activity in
+            """
+            \(index + 1).
+            App: \(activity.appName)
+            Window: \(activity.windowTitle.isEmpty ? "Unknown" : activity.windowTitle)
+            OCR: \(activity.ocrText.prefix(800).replacingOccurrences(of: "\n", with: " "))
+            """
+        }.joined(separator: "\n\n")
+
+        let prompt = """
+        Summarize each captured computer activity into a concise, human-readable activity label.
+
+        Rules:
+        - Return strictly valid JSON only.
+        - The JSON must be an object with a "summaries" array.
+        - The array must contain exactly \(activities.count) strings in the same order.
+        - Each summary should be 4-12 words.
+        - Prefer the concrete task, file, page, or project over generic app names.
+
+        Activities:
+        \(activityList)
+
+        JSON:
+        """
+
+        let response = try await generate(prompt: prompt, maxTokens: max(120, activities.count * 40))
+        return parseSummaries(from: response, expectedCount: activities.count) ?? fallbackSummaries
+    }
     
     /// Classify activity into project with category
     func classifyProject(event: Event, existingProjects: [String]) async throws -> (name: String, category: String) {
         let existingList = existingProjects.isEmpty ? "None yet" : existingProjects.joined(separator: ", ")
         
-        let safeContent = event.text.prefix(500).replacingOccurrences(of: "\n", with: " ")
+        let combinedContent = [event.text, event.ocrText ?? ""]
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+        let safeContent = combinedContent.prefix(900).replacingOccurrences(of: "\n", with: " ")
         let prompt = """
         Classify this computer activity into a Project and Category.
 
@@ -137,6 +190,77 @@ class NativeLLMService {
         
         return (name, category)
     }
+
+    private struct ActivitySummariesResponse: Decodable {
+        let summaries: [String]
+    }
+
+    private func parseSummaries(from response: String, expectedCount: Int) -> [String]? {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if let objectStart = trimmed.firstIndex(of: "{"),
+           let objectEnd = trimmed.lastIndex(of: "}") {
+            let jsonString = String(trimmed[objectStart...objectEnd])
+            if let data = jsonString.data(using: .utf8),
+               let payload = try? JSONDecoder().decode(ActivitySummariesResponse.self, from: data),
+               payload.summaries.count == expectedCount {
+                return payload.summaries.map(cleanSummary)
+            }
+        }
+
+        if let arrayStart = trimmed.firstIndex(of: "["),
+           let arrayEnd = trimmed.lastIndex(of: "]") {
+            let jsonString = String(trimmed[arrayStart...arrayEnd])
+            if let data = jsonString.data(using: .utf8),
+               let summaries = try? JSONDecoder().decode([String].self, from: data),
+               summaries.count == expectedCount {
+                return summaries.map(cleanSummary)
+            }
+        }
+
+        let lineSummaries = trimmed
+            .components(separatedBy: .newlines)
+            .map(cleanNumberedSummaryLine)
+            .filter { !$0.isEmpty }
+
+        if lineSummaries.count >= expectedCount {
+            return Array(lineSummaries.prefix(expectedCount))
+        }
+
+        return nil
+    }
+
+    private func cleanSummary(_ summary: String) -> String {
+        summary
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    }
+
+    private func cleanNumberedSummaryLine(_ line: String) -> String {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleaned = trimmed.replacingOccurrences(
+            of: #"^\s*[-*]?\s*\d+[\).:-]?\s*"#,
+            with: "",
+            options: .regularExpression
+        )
+        return cleanSummary(cleaned)
+    }
+
+    private func fallbackSummary(appName: String, windowTitle: String, ocrText: String) -> String {
+        let title = windowTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty {
+            return title
+        }
+
+        let text = ocrText
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty {
+            return String(text.prefix(120))
+        }
+
+        return appName
+    }
     
     // MARK: - Formatting Helpers
     
@@ -184,12 +308,19 @@ class NativeLLMService {
                 let app = event.source
                 let window = event.windowName ?? ""
                 let desc = event.text.prefix(80).replacingOccurrences(of: "\n", with: " ")
+                let ocrSnippet = event.ocrText?
+                    .prefix(220)
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
                 let project = event.projectName ?? ""
                 
                 context += "  [\(time)] \(app)"
                 if !window.isEmpty { context += " | \(window)" }
                 if !project.isEmpty { context += " | proj:\(project)" }
                 context += " — \(desc)\n"
+                if let ocrSnippet, !ocrSnippet.isEmpty, ocrSnippet != desc {
+                    context += "    OCR: \(ocrSnippet)\n"
+                }
             }
             if dayEvents.count > 50 {
                 context += "  ... and \(dayEvents.count - 50) more events\n"

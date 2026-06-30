@@ -91,7 +91,12 @@ class ActivityManager {
     
     /// Whether to automatically generate events from captures (persistent)
     var autoGenerateEvents: Bool {
-        get { UserDefaults.standard.bool(forKey: "autoGenerateEvents") }
+        get {
+            if UserDefaults.standard.object(forKey: "autoGenerateEvents") == nil {
+                return true
+            }
+            return UserDefaults.standard.bool(forKey: "autoGenerateEvents")
+        }
         set { UserDefaults.standard.set(newValue, forKey: "autoGenerateEvents") }
     }
     
@@ -447,7 +452,7 @@ class ActivityManager {
         
         // Auto-compile if threshold reached
         let timeSinceFirst = Date().timeIntervalSince(firstPendingTimestamp ?? Date())
-        if pendingCount >= autoCompileThreshold || timeSinceFirst >= autoCompileTimeInterval {
+        if autoGenerateEvents && (pendingCount >= autoCompileThreshold || timeSinceFirst >= autoCompileTimeInterval) {
             print("⚡ Auto-compile triggered (count: \(pendingCount), elapsed: \(Int(timeSinceFirst))s)")
             compilePendingCaptures()
         }
@@ -456,6 +461,28 @@ class ActivityManager {
     /// Compile all pending captures into deduplicated events with batched LLM summarization
     @MainActor
     func compilePendingCaptures() {
+        Task {
+            await compilePendingCapturesAndWait()
+        }
+    }
+
+    /// Compile any pending OCR captures before a query reads activity context.
+    @MainActor
+    func prepareActivityContextForQuery() async {
+        if isCompiling {
+            await waitForCompilation()
+        }
+
+        guard autoGenerateEvents, !pendingCaptures.isEmpty else {
+            fetchTodayEvents()
+            return
+        }
+
+        await compilePendingCapturesAndWait()
+    }
+
+    @MainActor
+    private func compilePendingCapturesAndWait() async {
         guard !pendingCaptures.isEmpty, !isCompiling else {
             if pendingCaptures.isEmpty {
                 print("⚠️ No captures to compile")
@@ -471,47 +498,57 @@ class ActivityManager {
         // Clear immediately to allow new captures during compilation
         pendingCaptures.removeAll()
         firstPendingTimestamp = nil
-        
-        Task {
-            // Step 1: Deduplicate — group all window snapshots by key, keep latest per unique state
-            let uniqueWindows = deduplicateWindowSnapshots(from: capturesToProcess)
-            print("📦 Grouped \(totalCount) captures into \(uniqueWindows.count) unique window states")
-            
-            // Step 1.5: Merge similar windows from the same app (e.g. multiple Chrome tabs about the same topic)
-            let mergedWindows = mergeSimilarWindows(uniqueWindows)
-            if mergedWindows.count < uniqueWindows.count {
-                print("🔗 Merged \(uniqueWindows.count) windows → \(mergedWindows.count) (consolidated similar content)")
+
+        // Step 1: Deduplicate — group all window snapshots by key, keep latest per unique state
+        let uniqueWindows = deduplicateWindowSnapshots(from: capturesToProcess)
+        print("📦 Grouped \(totalCount) captures into \(uniqueWindows.count) unique window states")
+
+        // Step 1.5: Merge similar windows from the same app (e.g. multiple Chrome tabs about the same topic)
+        let mergedWindows = mergeSimilarWindows(uniqueWindows)
+        if mergedWindows.count < uniqueWindows.count {
+            print("🔗 Merged \(uniqueWindows.count) windows → \(mergedWindows.count) (consolidated similar content)")
+        }
+
+        // Step 2: Batch LLM summarization — one call for all unique windows
+        let summaries = await batchSummarize(windows: mergedWindows)
+
+        // Step 3: Create events from summaries while preserving raw OCR text
+        for (index, window) in mergedWindows.enumerated() {
+            let summary = index < summaries.count ? summaries[index] : window.windowTitle
+            let eventType = determineEventType(for: window.appName)
+            let meta = "{\"textCount\":\(window.textCount),\"deduplicated\":true,\"ocrBacked\":true}"
+
+            addEvent(
+                source: window.appName,
+                type: eventType,
+                text: summary,
+                meta: meta,
+                windowName: window.windowTitle,
+                ocrText: String(window.ocrTextContent.prefix(4000)),
+                skipRecalculate: true
+            )
+        }
+
+        if let context = modelContext {
+            do {
+                try context.save()
+            } catch {
+                print("❌ Failed to save compiled OCR events: \(error)")
             }
-            
-            // Step 2: Batch LLM summarization — one call for all unique windows
-            let summaries = await batchSummarize(windows: mergedWindows)
-            
-            // Step 3: Create events from summaries
-            await MainActor.run {
-                for (index, window) in mergedWindows.enumerated() {
-                    let summary = index < summaries.count ? summaries[index] : window.windowTitle
-                    let eventType = determineEventType(for: window.appName)
-                    let meta = "{\"textCount\":\(window.textCount),\"deduplicated\":true}"
-                    
-                    addEvent(
-                        source: window.appName,
-                        type: eventType,
-                        text: summary,
-                        meta: meta,
-                        windowName: window.windowTitle,
-                        skipRecalculate: true
-                    )
-                }
-            }
-            
-            // Step 4: Concurrent project detection
-            await detectProjectsForRecentEvents()
-            
-            await MainActor.run {
-                fetchTodayEvents()
-                isCompiling = false
-                print("✅ Compilation complete! \(totalCount) captures → \(uniqueWindows.count) events")
-            }
+        }
+
+        // Step 4: Project detection
+        await detectProjectsForRecentEvents()
+
+        fetchTodayEvents()
+        isCompiling = false
+        print("✅ Compilation complete! \(totalCount) captures → \(uniqueWindows.count) events")
+    }
+
+    @MainActor
+    private func waitForCompilation() async {
+        while isCompiling {
+            try? await Task.sleep(nanoseconds: 100_000_000)
         }
     }
     
@@ -576,7 +613,7 @@ class ActivityManager {
             Task {
                 try? await Task.sleep(nanoseconds: UInt64(deduplicationWindow * 1_000_000_000))
                 await MainActor.run {
-                    recentEventKeys.remove(key)
+                    _ = recentEventKeys.remove(key)
                 }
             }
             return true
@@ -691,7 +728,7 @@ class ActivityManager {
         }
     }
     
-    /// Detect and assign projects to recent events using concurrent processing
+    /// Detect and assign projects to recent events.
     private func detectProjectsForRecentEvents() async {
         guard let detectionService = projectDetectionService else {
             print("⚠️ Project detection service not initialized")
@@ -710,39 +747,50 @@ class ActivityManager {
         
         // Get existing project names once (not per-event)
         let existingProjects = await getExistingProjectNames()
+        let existingProjectNames = Set(existingProjects.map { normalizedProjectName($0) })
         let workCategories: Set<String> = ["Coding", "Writing", "Design", "Research"]
+        var didUpdateProjects = false
         
-        // Process events concurrently with TaskGroup
-        await withTaskGroup(of: (Event, String, String).self) { group in
-            for event in recentEvents {
-                group.addTask {
-                    let (projectName, category) = await detectionService.detectProject(
-                        from: event,
-                        existingProjects: existingProjects
-                    )
-                    return (event, projectName, category)
-                }
+        for event in recentEvents {
+            let (projectName, category) = await detectionService.detectProject(
+                from: event,
+                existingProjects: existingProjects
+            )
+
+            // Skip non-project classifications
+            if projectName == "General" || projectName == "New Project" {
+                continue
             }
-            
-            // Collect results and update events on main actor
-            for await (event, projectName, category) in group {
-                // Skip non-project classifications
-                if projectName == "General" || projectName == "New Project" {
-                    continue
+
+            let isExistingProject = existingProjectNames.contains(normalizedProjectName(projectName))
+
+            if workCategories.contains(category) || isExistingProject {
+                await MainActor.run {
+                    event.projectName = projectName
                 }
-                
-                if workCategories.contains(category) {
-                    await MainActor.run {
-                        event.projectName = projectName
-                    }
+                didUpdateProjects = true
+
+                if !isExistingProject {
                     await createProjectIfNeeded(name: projectName, category: category)
-                } else {
-                    print("🚫 Skipping non-work category \(category): \(projectName)")
                 }
+            } else {
+                print("🚫 Skipping non-work category \(category): \(projectName)")
+            }
+        }
+
+        if didUpdateProjects, let context = modelContext {
+            do {
+                try context.save()
+            } catch {
+                print("❌ Failed to save project assignments: \(error)")
             }
         }
         
         print("✅ Project detection complete")
+    }
+
+    private func normalizedProjectName(_ name: String) -> String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
     
     /// Get list of existing project names

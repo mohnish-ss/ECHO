@@ -23,7 +23,7 @@ struct AskView: View {
     @State private var query: String = ""
     @State private var messages: [ChatMessage] = []
     @State private var isLoading = false
-    @State private var ollamaConnected = false
+    @State private var llmAvailable = true
     
     // Persist messages
     @AppStorage("askViewMessages") private var messagesData: Data = Data()
@@ -38,7 +38,7 @@ struct AskView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: messages.isEmpty)
         .task {
-            ollamaConnected = await llmService.checkConnection()
+            llmAvailable = await llmService.checkConnection()
             loadMessages()
         }
     }
@@ -50,7 +50,7 @@ struct AskView: View {
             Spacer()
             
             // Connection warning (if needed)
-            if !ollamaConnected {
+            if !llmAvailable {
                 connectionWarning
                     .padding(.horizontal)
             }
@@ -163,9 +163,9 @@ struct AskView: View {
                 
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(ollamaConnected ? Color.green : Color.orange)
+                        .fill(llmAvailable ? Color.green : Color.orange)
                         .frame(width: 6, height: 6)
-                    Text(ollamaConnected ? "Connected" : "Disconnected")
+                    Text(llmAvailable ? "Native model ready" : "Model unavailable")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -195,12 +195,29 @@ struct AskView: View {
                         }
                         
                         if isLoading {
-                            HStack {
-                                ProgressView()
-                                    .scaleEffect(0.8)
-                                Text("Thinking...")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                            HStack(alignment: .bottom, spacing: 12) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.cyan)
+                                    .frame(width: 28, height: 28)
+                                    .background(
+                                        Circle()
+                                            .fill(Color.cyan.opacity(0.1))
+                                    )
+
+                                ThinkingWaveLoader()
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 10)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 18)
+                                            .fill(Color.cardBackground)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 18)
+                                                    .stroke(Color.subtleBorder, lineWidth: 1)
+                                            )
+                                    )
+                                    .accessibilityLabel("Thinking")
+
                                 Spacer()
                             }
                             .padding(.horizontal)
@@ -232,13 +249,13 @@ struct AskView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
                 .font(.caption)
-            Text("Ollama not running. Start it to use Ask.")
+            Text("Native model unavailable. Retry to check again.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
             Button("Retry") {
                 Task {
-                    ollamaConnected = await llmService.checkConnection()
+                    llmAvailable = await llmService.checkConnection()
                 }
             }
             .buttonStyle(.plain)
@@ -260,7 +277,7 @@ struct AskView: View {
                 .padding(.vertical, 10)
                 .background(Color.cardBackground)
                 .cornerRadius(20)
-                .disabled(isLoading || !ollamaConnected)
+                .disabled(isLoading || !llmAvailable)
                 .onSubmit {
                     Task { await sendMessage() }
                 }
@@ -270,10 +287,10 @@ struct AskView: View {
             }) {
                 Image(systemName: isLoading ? "stop.circle.fill" : "arrow.up.circle.fill")
                     .font(.title2)
-                    .foregroundStyle(ollamaConnected && !query.isEmpty ? Color.blue : Color.gray)
+                    .foregroundStyle(llmAvailable && !query.isEmpty ? Color.blue : Color.gray)
             }
             .buttonStyle(.plain)
-            .disabled(query.isEmpty || !ollamaConnected || isLoading)
+            .disabled(query.isEmpty || !llmAvailable || isLoading)
         }
     }
     
@@ -291,6 +308,8 @@ struct AskView: View {
         isLoading = true
         
         do {
+            await activityManager.prepareActivityContextForQuery()
+
             // Fetch last 7 days of context for the LLM
             let contextEvents = fetchContextEvents()
             let response = try await llmService.queryEvents(currentQuery, events: contextEvents)
@@ -388,6 +407,67 @@ struct AskView: View {
         if let decoded = try? JSONDecoder().decode([ChatMessage].self, from: messagesData) {
             messages = decoded
         }
+    }
+}
+
+// MARK: - Thinking Loader
+
+struct ThinkingWaveLoader: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let dotCount = 5
+    private let dotSize: CGFloat = 6
+    private let dotSpacing: CGFloat = 7
+    private let maxLift: CGFloat = 10
+    private let lineHeight: CGFloat = 1
+    private let cycleDuration: TimeInterval = 1.2
+    private let dotStagger: TimeInterval = 0.12
+
+    private var loaderWidth: CGFloat {
+        CGFloat(dotCount) * dotSize + CGFloat(dotCount - 1) * dotSpacing
+    }
+
+    private var loaderHeight: CGFloat {
+        maxLift + dotSize + lineHeight
+    }
+
+    var body: some View {
+        SwiftUI.TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
+            ZStack(alignment: .bottomLeading) {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.22))
+                    .frame(width: loaderWidth, height: lineHeight)
+
+                HStack(spacing: dotSpacing) {
+                    ForEach(0..<dotCount, id: \.self) { index in
+                        Circle()
+                            .fill(Color.cyan)
+                            .frame(width: dotSize, height: dotSize)
+                            .offset(y: -lift(for: index, at: timeline.date))
+                    }
+                }
+                .frame(width: loaderWidth, height: loaderHeight - lineHeight, alignment: .bottom)
+                .padding(.bottom, lineHeight)
+            }
+            .frame(width: loaderWidth, height: loaderHeight, alignment: .bottomLeading)
+        }
+        .frame(width: loaderWidth, height: loaderHeight)
+        .accessibilityElement(children: .ignore)
+    }
+
+    private func lift(for index: Int, at date: Date) -> CGFloat {
+        guard !reduceMotion else { return 0 }
+
+        let elapsed = date.timeIntervalSinceReferenceDate
+        let shifted = elapsed - Double(index) * dotStagger
+        let cyclePosition = shifted - floor(shifted / cycleDuration) * cycleDuration
+        let progress = cyclePosition / cycleDuration
+        let activeDuration = 0.62
+
+        guard progress < activeDuration else { return 0 }
+
+        let localProgress = progress / activeDuration
+        return CGFloat(sin(localProgress * .pi)) * maxLift
     }
 }
 

@@ -7,8 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		EA62EA812FF33ED000EA9C27 /* Tokenizers in Frameworks */ = {isa = PBXBuildFile; productRef = EA62EA802FF33ED000EA9C27 /* Tokenizers */; };
 		EAB010D72FF33AF400872073 /* MLXHuggingFace in Frameworks */ = {isa = PBXBuildFile; productRef = EAB010D62FF33AF400872073 /* MLXHuggingFace */; };
 		EAB010D92FF33AF400872073 /* MLXLMCommon in Frameworks */ = {isa = PBXBuildFile; productRef = EAB010D82FF33AF400872073 /* MLXLMCommon */; };
+		EAB010DB2FF33AF400872073 /* MLXLLM in Frameworks */ = {isa = PBXBuildFile; productRef = EAB010DA2FF33AF400872073 /* MLXLLM */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -72,6 +74,8 @@
 			files = (
 				EAB010D92FF33AF400872073 /* MLXLMCommon in Frameworks */,
 				EAB010D72FF33AF400872073 /* MLXHuggingFace in Frameworks */,
+				EAB010DB2FF33AF400872073 /* MLXLLM in Frameworks */,
+				EA62EA812FF33ED000EA9C27 /* Tokenizers in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -134,6 +138,8 @@
 			packageProductDependencies = (
 				EAB010D62FF33AF400872073 /* MLXHuggingFace */,
 				EAB010D82FF33AF400872073 /* MLXLMCommon */,
+				EAB010DA2FF33AF400872073 /* MLXLLM */,
+				EA62EA802FF33ED000EA9C27 /* Tokenizers */,
 			);
 			productName = "ECHO-macOS-App";
 			productReference = EAC42EE32F2979D8005A99B6 /* ECHO-macOS-App.app */;
@@ -219,6 +225,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */,
+				EA62EA7F2FF33ED000EA9C27 /* XCRemoteSwiftPackageReference "swift-transformers" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = EAC42EE42F2979D8005A99B6 /* Products */;
@@ -610,6 +617,14 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		EA62EA7F2FF33ED000EA9C27 /* XCRemoteSwiftPackageReference "swift-transformers" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/huggingface/swift-transformers.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.3.3;
+			};
+		};
 		EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/ml-explore/mlx-swift-lm";
@@ -621,6 +636,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		EA62EA802FF33ED000EA9C27 /* Tokenizers */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EA62EA7F2FF33ED000EA9C27 /* XCRemoteSwiftPackageReference "swift-transformers" */;
+			productName = Tokenizers;
+		};
 		EAB010D62FF33AF400872073 /* MLXHuggingFace */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
@@ -630,6 +650,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
 			productName = MLXLMCommon;
+		};
+		EAB010DA2FF33AF400872073 /* MLXLLM */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EAB010D52FF33AF400872073 /* XCRemoteSwiftPackageReference "mlx-swift-lm" */;
+			productName = MLXLLM;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

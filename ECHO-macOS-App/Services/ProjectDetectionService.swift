@@ -46,7 +46,9 @@ class ProjectDetectionService {
     
     /// Rule-based detection (fast)
     private func detectFromRules(_ event: Event, existingProjects: [String]) -> (name: String, category: String)? {
-        let text = event.text.lowercased()
+        let text = [event.text, event.ocrText ?? ""]
+            .joined(separator: "\n")
+            .lowercased()
         let windowName = event.windowName?.lowercased() ?? ""
         let appName = event.source.lowercased()
         
@@ -66,7 +68,7 @@ class ProjectDetectionService {
             
             // Match by window title
             if windowName.contains(lowerProject) {
-                return (projectName, "General") 
+                return (projectName, categoryForApp(appName))
             }
         }
         
@@ -92,6 +94,33 @@ class ProjectDetectionService {
         }
         
         return nil
+    }
+
+    private func categoryForApp(_ appName: String) -> String {
+        if appName.contains("xcode") || appName.contains("code") || appName.contains("cursor") ||
+           appName.contains("vscode") || appName.contains("terminal") || appName.contains("iterm") ||
+           appName.contains("warp") || appName.contains("android studio") ||
+           appName.contains("intellij") {
+            return "Coding"
+        }
+
+        if appName.contains("figma") || appName.contains("sketch") ||
+           appName.contains("photoshop") || appName.contains("illustrator") {
+            return "Design"
+        }
+
+        if appName.contains("notes") || appName.contains("notion") ||
+           appName.contains("obsidian") || appName.contains("pages") ||
+           appName.contains("word") {
+            return "Writing"
+        }
+
+        if appName.contains("safari") || appName.contains("chrome") ||
+           appName.contains("firefox") || appName.contains("arc") {
+            return "Research"
+        }
+
+        return "Other"
     }
     
     private func extractXcodeProject(from windowTitle: String) -> String? {
